@@ -1,4 +1,5 @@
 const { promisePool } = require('../config/database');
+const { promisePool: db } = require('../config/database');
 const path = require('path');
 const fs = require('fs');
 const { logActivity } = require('./activitiesController');
@@ -46,6 +47,12 @@ const getCVs = async (req, res) => {
     let query = `
       SELECT 
         c.id,
+        c.tc_kimlik_no,
+        c.ilce,
+        c.mahalle,
+        c.adres,
+        c.talep_edilen_is,
+        c.profil_resmi,
         c.kayit_tarihi,
         c.adi,
         c.soyadi,
@@ -53,7 +60,6 @@ const getCVs = async (req, res) => {
         c.referans,
         c.email,
         c.telefon,
-        c.referans_kisi,
         c.durum,
         c.cv_dosyasi,
         c.notlar,
@@ -184,18 +190,24 @@ const createCV = async (req, res) => {
       meslek,
       telefon,
       email,
-      referans_kisi,
-      referans_telefon,
-      referans_meslek,
       referans,
-      is_yonlendirildi,
       durum,
       notlar,
       existing_profil_resmi,
       contact_avatar
     } = req.body;
     const user_id = req.user.id;
-    const cv_dosyasi = req.files && req.files['cv_dosyasi'] && req.files['cv_dosyasi'][0] ? req.files['cv_dosyasi'][0].filename : null;
+    
+    // CV dosyaları - birden fazla dosya JSON array olarak saklanacak
+    let cv_dosyasi = null;
+    if (req.files && req.files['cv_dosyasi'] && req.files['cv_dosyasi'].length > 0) {
+      // Tüm dosyaları JSON array olarak kaydet
+      const dosyaListesi = req.files['cv_dosyasi'].map(f => f.filename);
+      cv_dosyasi = JSON.stringify(dosyaListesi);
+      
+      // Tüm dosya isimlerini loglayalım
+      console.log('Yüklenen CV dosyaları JSON:', cv_dosyasi);
+    }
     
     // Profil resmi: contact avatar, varolan dosya adı veya yeni yüklenen dosya
     let profil_resmi = null;
@@ -219,6 +231,7 @@ const createCV = async (req, res) => {
     console.log('soyadi:', soyadi);
     console.log('meslek:', meslek);
     console.log('kayit_tarihi:', kayit_tarihi);
+    console.log('durum:', durum);
 
     // Zorunlu alanları kontrol et
     if (!adi || !soyadi || !meslek || !kayit_tarihi) {
@@ -236,13 +249,11 @@ const createCV = async (req, res) => {
     const [result] = await promisePool.execute(
       `INSERT INTO cvs (
         user_id, tc_kimlik_no, kayit_tarihi, adi, soyadi, ilce, mahalle, adres,
-        talep_edilen_is, meslek, telefon, email, referans_kisi, referans_telefon,
-        referans_meslek, referans, is_yonlendirildi, durum, cv_dosyasi, profil_resmi, notlar
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        talep_edilen_is, meslek, telefon, email, referans, durum, cv_dosyasi, profil_resmi, notlar
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         user_id, tc_kimlik_no || null, kayit_tarihi, adi, soyadi, ilce || null, mahalle || null, adres || null,
-        talep_edilen_is || null, meslek, telefon || null, email || null, referans_kisi || null, referans_telefon || null,
-        referans_meslek || null, referans || null, is_yonlendirildi || 'SEÇİNİZ', durum || 'İŞ ARIYOR',
+        talep_edilen_is || null, meslek, telefon || null, email || null, referans || null, durum || 'İŞ ARIYOR',
         cv_dosyasi, profil_resmi, notlar || null
       ]
     );
@@ -315,16 +326,20 @@ const updateCV = async (req, res) => {
       meslek,
       telefon,
       email,
-      referans_kisi,
-      referans_telefon,
-      referans_meslek,
       referans,
-      is_yonlendirildi,
       durum,
       notlar
     } = req.body;
     const user_id = req.user.id;
-    const cv_dosyasi = req.files && req.files['cv_dosyasi'] && req.files['cv_dosyasi'][0] ? req.files['cv_dosyasi'][0].filename : null;
+    
+    // CV dosyaları - birden fazla dosya JSON array olarak saklanacak
+    let cv_dosyasi = null;
+    if (req.files && req.files['cv_dosyasi'] && req.files['cv_dosyasi'].length > 0) {
+      // Tüm dosyaları JSON array olarak kaydet
+      const dosyaListesi = req.files['cv_dosyasi'].map(f => f.filename);
+      cv_dosyasi = JSON.stringify(dosyaListesi);
+    }
+    
     const profil_resmi = req.files && req.files['profil_resmi'] && req.files['profil_resmi'][0] ? req.files['profil_resmi'][0].filename : null;
 
     // CV'nin varlığını ve sahipliğini kontrol et
@@ -344,8 +359,7 @@ const updateCV = async (req, res) => {
     let updateQuery = `
       UPDATE cvs SET 
         tc_kimlik_no = ?, kayit_tarihi = ?, adi = ?, soyadi = ?, ilce = ?, mahalle = ?, adres = ?,
-        talep_edilen_is = ?, meslek = ?, telefon = ?, email = ?, referans_kisi = ?, referans_telefon = ?,
-        referans_meslek = ?, referans = ?, is_yonlendirildi = ?, durum = ?, notlar = ?, updated_at = CURRENT_TIMESTAMP
+        talep_edilen_is = ?, meslek = ?, telefon = ?, email = ?, referans = ?, durum = ?, notlar = ?, updated_at = CURRENT_TIMESTAMP
     `;
     let updateParams = [
       tc_kimlik_no || existingCV[0].tc_kimlik_no,
@@ -359,11 +373,7 @@ const updateCV = async (req, res) => {
       meslek || existingCV[0].meslek,
       telefon || existingCV[0].telefon,
       email || existingCV[0].email,
-      referans_kisi || existingCV[0].referans_kisi,
-      referans_telefon || existingCV[0].referans_telefon,
-      referans_meslek || existingCV[0].referans_meslek,
       referans || existingCV[0].referans,
-      is_yonlendirildi || existingCV[0].is_yonlendirildi,
       durum || existingCV[0].durum,
       notlar || existingCV[0].notlar
     ];
@@ -478,13 +488,10 @@ const getStatuses = async (req, res) => {
   try {
     const statuses = [
       'İŞ ARIYOR',
-      'İŞ BULUNDU', 
+      'YÖNLENDİRİLDİ',
+      'İŞE YERLEŞTİRİLDİ',
       'BEKLEMEDE',
-      'YETİŞTİRİLDİ',
-      'İŞLENMEDE',
-      'GÖLDAĞ',
-      'DEĞERLENDİRİLİYOR',
-      'YETİŞTİRİLECEK'
+      'İŞ BULUNDU'
     ];
 
     res.json({
@@ -507,10 +514,10 @@ const downloadCVFile = async (req, res) => {
     const { filename } = req.params;
     const user_id = req.user.id;
 
-    // Dosya adından CV'yi bul (tüm CV'lere erişim)
+    // Dosya adından CV'yi bul - JSON array içinde arama yap
     const [cvs] = await promisePool.execute(
-      'SELECT * FROM cvs WHERE cv_dosyasi = ?',
-      [filename]
+      'SELECT * FROM cvs WHERE JSON_CONTAINS(cv_dosyasi, JSON_QUOTE(?)) OR cv_dosyasi = ?',
+      [filename, filename]
     );
 
     if (cvs.length === 0) {
@@ -641,6 +648,64 @@ const getProfileImage = async (req, res) => {
   }
 };
 
+const updateCVStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { durum } = req.body;
+
+    console.log('updateCVStatus çağrıldı:', { id, durum, body: req.body });
+
+    if (!durum) {
+      return res.status(400).json({
+        success: false,
+        message: 'Durum bilgisi gereklidir.'
+      });
+    }
+
+    const validStatuses = ['İŞ ARIYOR', 'YÖNLENDİRİLDİ', 'İŞE YERLEŞTİRİLDİ', 'BEKLEMEDE', 'İŞ BULUNDU'];
+  
+    console.log('Durum kontrolü:', { durum, validStatuses, isValid: validStatuses.includes(durum) });
+
+    if (!validStatuses.includes(durum)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Geçersiz durum değeri.'
+      });
+    }
+
+    console.log('SQL sorgusu çalıştırılıyor:', { durum, id });
+
+    const [result] = await db.execute(
+      'UPDATE cvs SET durum = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [durum, id]
+    );
+
+    console.log('SQL sonucu:', result);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'CV bulunamadı.'
+      });
+    }
+
+    console.log('CV durumu başarıyla güncellendi:', { id, durum });
+
+    res.json({
+      success: true,
+      message: 'CV durumu başarıyla güncellendi.'
+    });
+
+  } catch (error) {
+    console.error('CV durum güncelleme hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'CV durumu güncellenirken bir hata oluştu.',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getCVs,
   getCVById,
@@ -649,5 +714,6 @@ module.exports = {
   deleteCV,
   getStatuses,
   downloadCVFile,
-  getProfileImage
+  getProfileImage,
+  updateCVStatus
 };

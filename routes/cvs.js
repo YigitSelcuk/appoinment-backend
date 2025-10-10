@@ -12,7 +12,8 @@ const {
   deleteCV,
   getStatuses,
   downloadCVFile,
-  getProfileImage
+  getProfileImage,
+  updateCVStatus
 } = require('../controllers/cvsController');
 
 // Upload klasörünü oluştur
@@ -92,7 +93,7 @@ router.get('/:id', getCVById);
 
 // POST /api/cvs - Yeni CV ekle
 router.post('/', upload.fields([
-  { name: 'cv_dosyasi', maxCount: 1 },
+  { name: 'cv_dosyasi', maxCount: 5 }, // Birden fazla CV dosyası için maxCount artırıldı
   { name: 'profil_resmi', maxCount: 1 }
 ]), createCV);
 
@@ -104,6 +105,9 @@ router.put('/:id', upload.fields([
 
 // DELETE /api/cvs/:id - CV sil
 router.delete('/:id', deleteCV);
+
+// PUT /api/cvs/:id/status - CV durumu güncelle
+router.put('/:id/status', updateCVStatus);
 
 // Error handling middleware for multer
 router.use((error, req, res, next) => {
