@@ -1,0 +1,70 @@
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Chat uploads klasörünü oluştur
+const uploadsDir = path.join(__dirname, '../uploads/chat');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Multer konfigürasyonu
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    // Dosya adını benzersiz yap: timestamp_originalname
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const extension = path.extname(file.originalname);
+    const baseName = path.basename(file.originalname, extension);
+    cb(null, `chat_${uniqueSuffix}_${baseName}${extension}`);
+  }
+});
+
+// Dosya filtresi
+const fileFilter = (req, file, cb) => {
+  // İzin verilen dosya türleri
+  const allowedMimeTypes = [
+    // Resimler
+    'image/jpeg',
+    'image/jpg', 
+    'image/png',
+    'image/gif',
+    'image/webp',
+    // PDF
+    'application/pdf',
+    // Excel
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    // Word
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    // PowerPoint
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    // Text
+    'text/plain',
+    'text/csv',
+    // Archive
+    'application/zip',
+    'application/x-rar-compressed'
+  ];
+
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Desteklenmeyen dosya türü'), false);
+  }
+};
+
+// Multer instance
+const chatUpload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  }
+});
+
+module.exports = chatUpload; 
