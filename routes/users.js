@@ -9,13 +9,17 @@ const {
   createUser,
   updateUser, 
   updateUserPermissions,
-  deleteUser
+  deleteUser,
+  getDepartments
 } = require('../controllers/usersController');
 const { authenticateToken, requireAdmin } = require('../middleware/security');
 const upload = require('../middleware/upload');
 
 // Kullanıcıları listele
 router.get('/', authenticateToken, getUsers);
+
+// Department listesini getir
+router.get('/departments', authenticateToken, getDepartments);
 
 // Mevcut kullanıcının bilgilerini getir
 router.get('/me', authenticateToken, getCurrentUser);

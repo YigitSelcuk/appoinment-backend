@@ -654,6 +654,32 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// Tekrarsız department listesini getir
+const getDepartments = async (req, res) => {
+  try {
+    const [departments] = await db.execute(`
+      SELECT DISTINCT department 
+      FROM users 
+      WHERE department IS NOT NULL 
+      AND department != '' 
+      ORDER BY department ASC
+    `);
+    
+    const departmentList = departments.map(row => row.department);
+    
+    res.json({ 
+      success: true, 
+      departments: departmentList 
+    });
+  } catch (error) {
+    console.error('Department listesi alınırken hata:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Department listesi alınamadı' 
+    });
+  }
+};
+
 module.exports = {
   getUsers,
   getCurrentUser,
@@ -663,5 +689,6 @@ module.exports = {
   createUser,
   updateUser,
   updateUserPermissions,
-  deleteUser
+  deleteUser,
+  getDepartments
 };
