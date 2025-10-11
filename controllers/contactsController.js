@@ -638,10 +638,18 @@ const checkTCExists = async (req, res) => {
     );
     
     if (rows.length > 0) {
+      // Avatar URL'ini tam URL'ye çevir
+      const contact = {
+        ...rows[0],
+        avatar: rows[0].avatar && !rows[0].avatar.startsWith('http') 
+          ? `${process.env.BACKEND_URL || 'http://localhost:5000'}${rows[0].avatar}`
+          : rows[0].avatar
+      };
+      
       return res.json({
         success: true,
         exists: true,
-        contact: rows[0],
+        contact: contact,
         message: `Bu TC Kimlik No zaten ${rows[0].name} ${rows[0].surname} adlı kişiye ait`
       });
     }

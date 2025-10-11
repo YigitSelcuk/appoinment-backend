@@ -1,11 +1,11 @@
 const { promisePool: db } = require('../config/database');
 
 // Bildirim oluştur
-exports.createNotification = async (userId, title, message, type = 'info', relatedId = null, relatedTable = null) => {
+exports.createNotification = async (userId, title, message, type = 'info', relatedId = null, relatedType = null) => {
   try {
     const [result] = await db.execute(
-      'INSERT INTO notifications (user_id, title, message, type, related_id, related_table) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, title, message, type, relatedId, relatedTable]
+      'INSERT INTO notifications (user_id, title, message, type, related_id, related_type) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, title, message, type, relatedId, relatedType]
     );
     return result.insertId;
   } catch (error) {

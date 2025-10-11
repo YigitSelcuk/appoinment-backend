@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { logActivity } = require('./activitiesController');
+const { createNotification } = require('./notificationsController');
 
 // Talep istatistiklerini getir
 const getRequestStats = async (req, res) => {
@@ -280,6 +281,31 @@ const createRequest = async (req, res) => {
       req.get('User-Agent')
     );
 
+    // İlgili müdürlük kullanıcılarına bildirim gönder
+    try {
+      const [departmentUsers] = await db.execute(
+        'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
+        [ilgiliMudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', req.user.id]
+      );
+
+      // Her kullanıcıya bildirim gönder
+      for (const user of departmentUsers) {
+        await createNotification(
+          user.id,
+          'Yeni Talep',
+          `${req.user.name  || 'Bilinmeyen Kullanıcı'} tarafından yeni bir talep oluşturuldu: ${talepBasligi || 'Başlık belirtilmemiş'}`,
+          'request',
+          result.insertId,
+          'requests'
+        );
+      }
+
+      console.log(`${departmentUsers.length} kullanıcıya bildirim gönderildi`);
+    } catch (notificationError) {
+      console.error('Bildirim gönderilirken hata:', notificationError);
+      // Bildirim hatası talep oluşturma işlemini etkilemesin
+    }
+
     res.status(201).json({
       success: true,
       message: 'Talep başarıyla oluşturuldu',
@@ -400,6 +426,31 @@ const updateRequest = async (req, res) => {
       req.get('User-Agent')
     );
 
+    // İlgili müdürlük kullanıcılarına bildirim gönder (güncelleme için)
+    try {
+      const [departmentUsers] = await db.execute(
+        'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
+        [ilgiliMudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', req.user.id]
+      );
+
+      // Her kullanıcıya bildirim gönder
+      for (const user of departmentUsers) {
+        await createNotification(
+          user.id,
+          'Talep Güncellendi',
+          `${req.user.name || 'Bilinmeyen Kullanıcı'} tarafından bir talep güncellendi: ${talepBasligi || 'Başlık belirtilmemiş'}${changes.length > 0 ? ' - ' + changes.join(', ') : ''}`,
+          'request_updated',
+          id,
+          'requests'
+        );
+      }
+
+      console.log(`${departmentUsers.length} kullanıcıya güncelleme bildirimi gönderildi`);
+    } catch (notificationError) {
+      console.error('Güncelleme bildirimi gönderilirken hata:', notificationError);
+      // Bildirim hatası talep güncelleme işlemini etkilemesin
+    }
+
     res.json({
       success: true,
       message: 'Talep başarıyla güncellendi'
@@ -455,6 +506,31 @@ const deleteRequest = async (req, res) => {
       req.ip,
       req.get('User-Agent')
     );
+
+    // İlgili müdürlük kullanıcılarına bildirim gönder (silme için)
+    try {
+      const [departmentUsers] = await db.execute(
+        'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
+        [deletedRecord.ilgili_mudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', req.user.id]
+      );
+
+      // Her kullanıcıya bildirim gönder
+      for (const user of departmentUsers) {
+        await createNotification(
+          user.id,
+          'Talep Silindi',
+          `${req.user.name || 'Bilinmeyen Kullanıcı'} tarafından bir talep silindi: ${deletedRecord.talep_basligi || 'Başlık belirtilmemiş'} (${deletedRecord.ad} ${deletedRecord.soyad})`,
+          'request_deleted',
+          id,
+          'requests'
+        );
+      }
+
+      console.log(`${departmentUsers.length} kullanıcıya silme bildirimi gönderildi`);
+    } catch (notificationError) {
+      console.error('Silme bildirimi gönderilirken hata:', notificationError);
+      // Bildirim hatası talep silme işlemini etkilemesin
+    }
 
     res.json({
       success: true,
@@ -688,6 +764,50 @@ const updateRequestStatus = async (req, res) => {
       req.ip,
       req.get('User-Agent')
     );
+
+    // İlgili müdürlük kullanıcılarına bildirim gönder (durum değişikliği için)
+    try {
+      const [departmentUsers] = await db.execute(
+        'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
+        [oldRequest.ilgili_mudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', userId]
+      );
+
+      // Talep sahibine de bildirim gönder (eğer farklı müdürlükteyse)
+      if (oldRequest.user_id && oldRequest.user_id !== userId) {
+        const [requestOwner] = await db.execute(
+          'SELECT id, name, email FROM users WHERE id = ?',
+          [oldRequest.user_id]
+        );
+        
+        if (requestOwner.length > 0) {
+          await createNotification(
+            requestOwner[0].id,
+            'Talep Durumu Güncellendi',
+            `Talebinizin durumu güncellendi: ${oldRequest.talep_basligi || 'Başlık belirtilmemiş'} - ${oldStatus} → ${durum}`,
+            'request_status_updated',
+            requestId,
+            'requests'
+          );
+        }
+      }
+
+      // Her müdürlük kullanıcısına bildirim gönder
+      for (const user of departmentUsers) {
+        await createNotification(
+          user.id,
+          'Talep Durumu Güncellendi',
+          `${userName} tarafından talep durumu güncellendi: ${oldRequest.talep_basligi || 'Başlık belirtilmemiş'} - ${oldStatus} → ${durum}`,
+          'request_status_updated',
+          requestId,
+          'requests'
+        );
+      }
+
+      console.log(`${departmentUsers.length} kullanıcıya durum değişikliği bildirimi gönderildi`);
+    } catch (notificationError) {
+      console.error('Durum değişikliği bildirimi gönderilirken hata:', notificationError);
+      // Bildirim hatası durum güncelleme işlemini etkilemesin
+    }
 
     res.json({
       success: true,

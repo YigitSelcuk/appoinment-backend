@@ -74,21 +74,21 @@ const getCVs = async (req, res) => {
     let queryParams = [];
 
     if (search) {
-      query += ` AND (adi LIKE ? OR soyadi LIKE ? OR email LIKE ? OR meslek LIKE ?)`;
+      query += ` AND (c.adi LIKE ? OR c.soyadi LIKE ? OR c.email LIKE ? OR c.meslek LIKE ?)`;
       queryParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     if (status) {
-      query += ` AND durum = ?`;
+      query += ` AND c.durum = ?`;
       queryParams.push(status);
     }
 
     if (position) {
-      query += ` AND meslek LIKE ?`;
+      query += ` AND c.meslek LIKE ?`;
       queryParams.push(`%${position}%`);
     }
 
-    query += ` ORDER BY kayit_tarihi DESC LIMIT ${limit} OFFSET ${offset}`;
+    query += ` ORDER BY c.kayit_tarihi DESC LIMIT ${limit} OFFSET ${offset}`;
     // limit ve offset parametrelerini direkt query'ye ekliyoruz
 
     const [cvs] = await promisePool.execute(query, queryParams);
