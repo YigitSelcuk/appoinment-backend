@@ -381,7 +381,7 @@ const getCategoriesWithStats = async (req, res) => {
       sira: index + 1 + offset,
       name: category.name,
       alt_kategori: category.alt_kategori || '',
-      kisiSayisi: category.kisiSayisi,
+      contact_count: category.kisiSayisi,
       description: category.description || ''
     }));
     

@@ -108,7 +108,8 @@ const getUsers = async (req, res) => {
         department,
         color,
         permissions,
-        DATE_FORMAT(created_at, '%d.%m.%Y') AS created_at
+        created_at,
+        last_seen
       FROM users
       ORDER BY name ASC
     `;
