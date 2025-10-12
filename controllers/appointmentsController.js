@@ -473,6 +473,7 @@ const createAppointment = async (req, res) => {
       visibleToAll,
       location,
       reminderDateTime,
+      reminderEnabled,
       repeat
     } = req.body;
     
@@ -592,211 +593,46 @@ const createAppointment = async (req, res) => {
       WHERE a.id = ?
     `, [appointmentId]);
 
-    // Bildirim gönderme işlemleri
-    const appointmentData = {
-      title,
-      date,
-      startTime,
-      endTime,
-      description,
-      location
-    };
-
-    // Artık tek tablo sisteminde attendeeId yok, sadece attendeeName var
-    // Bildirimler için attendeeName'i kullanabiliriz ama şimdilik devre dışı bırakıyoruz
-    // TODO: Gerekirse attendee bildirimlerini daha sonra ekleyebiliriz
-
     // Artık attendees bilgileri JSON olarak ana tabloda tutuluyor
     console.log('Katılımcı bilgileri JSON olarak ana tabloda kaydedildi:', attendeeName);
 
-    // Bildirim gönder (davetli kişilere)
-    if (selectedContacts && selectedContacts.length > 0) {
-      console.log('Davetli kişilere bildirim gönderiliyor:', selectedContacts);
-      
-      for (const contact of selectedContacts) {
-        // E-posta bildirimi
-        if (notificationEmail && contact.email) {
-          try {
-            await emailService.sendAppointmentNotification(
-              appointmentData,
-              contact.email,
-              'created'
-            );
-            console.log('Davetli kişiye e-posta gönderildi:', contact.email);
-          } catch (emailError) {
-            console.error('Davetli kişiye e-posta gönderme hatası:', emailError);
-          }
-        }
-        
-        // SMS bildirimi
-        if (notificationSMS && contact.phone) {
-          try {
-            const smsMessage = `Randevu Daveti: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
-            console.log('Davetli kişiye SMS gönderiliyor:', contact.phone, smsMessage);
-            const smsResult = await smsService.sendSMS(contact.phone, smsMessage);
-            console.log('Davetli SMS gönderim sonucu:', smsResult);
-            if (smsResult.success) {
-              console.log('Davetli kişiye SMS başarıyla gönderildi:', contact.phone);
-            } else {
-              console.error('Davetli SMS gönderim başarısız:', smsResult.error);
-            }
-          } catch (smsError) {
-            console.error('Davetli kişiye SMS gönderme hatası:', smsError);
-          }
-        }
-      }
-    }
-
-    // Görünürlük kullanıcılarına bildirim gönder (visibleToUsers)
-    if (visibleToUsers && visibleToUsers.length > 0) {
-      console.log('Görünürlük kullanıcılarına bildirim gönderiliyor:', visibleToUsers);
-      
-      for (const user of visibleToUsers) {
-        // Uygulama içi bildirim gönder
-        try {
-          await notificationsController.createNotification(
-              user.id,
-              'Yeni Randevu',
-              `${title} - ${date} ${startTime}`,
-              'appointment_created',
-              appointmentId,
-              'appointments'
-            );
-          console.log('Kullanıcıya uygulama içi bildirim gönderildi:', user.id);
-        } catch (notificationError) {
-          console.error('Uygulama içi bildirim gönderme hatası:', notificationError);
-        }
-        
-        // E-posta bildirimi
-        if (notificationEmail && user.email) {
-          try {
-            const appointmentData = {
-              title,
-              date,
-              startTime,
-              endTime,
-              description,
-              location
-            };
-            await emailService.sendAppointmentNotification(
-              appointmentData,
-              user.email,
-              'created'
-            );
-            console.log('Kullanıcıya e-posta gönderildi:', user.email);
-          } catch (emailError) {
-            console.error('Kullanıcıya e-posta gönderme hatası:', emailError);
-          }
-        }
-        
-        // SMS bildirimi
-        if (notificationSMS && user.phone) {
-          try {
-            const smsMessage = `Yeni Randevu: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
-            console.log('Kullanıcıya SMS gönderiliyor:', user.phone, smsMessage);
-            const smsResult = await smsService.sendSMS(user.phone, smsMessage);
-            console.log('Kullanıcı SMS gönderim sonucu:', smsResult);
-            if (smsResult.success) {
-              console.log('Kullanıcıya SMS başarıyla gönderildi:', user.phone);
-            } else {
-              console.error('Kullanıcı SMS gönderim başarısız:', smsResult.error);
-            }
-          } catch (smsError) {
-            console.error('Kullanıcıya SMS gönderme hatası:', smsError);
-          }
-        }
-      }
-    }
-
-    // Tüm kullanıcılara gönder seçeneği
-    if (visibleToAll) {
-      console.log('Tüm kullanıcılara bildirim gönderiliyor...');
-      try {
-        const [allUsers] = await db.execute('SELECT id, email, phone FROM users WHERE id != ?', [userId]);
-        
-        for (const user of allUsers) {
-          // Uygulama içi bildirim gönder
-          try {
-            await notificationsController.createNotification(
-              user.id,
-              'Yeni Randevu',
-              `${title} - ${date} ${startTime}`,
-              'appointment_created',
-              appointmentId,
-              'appointments'
-            );
-            console.log('Tüm kullanıcıya uygulama içi bildirim gönderildi:', user.id);
-          } catch (notificationError) {
-            console.error('Tüm kullanıcıya uygulama içi bildirim gönderme hatası:', notificationError);
-          }
-          
-          // E-posta bildirimi
-          if (notificationEmail && user.email) {
-            try {
-              const appointmentData = {
-                title,
-                date,
-                startTime,
-                endTime,
-                description,
-                location
-              };
-              await emailService.sendAppointmentNotification(
-                appointmentData,
-                user.email,
-                'created'
-              );
-              console.log('Tüm kullanıcıya e-posta gönderildi:', user.email);
-            } catch (emailError) {
-              console.error('Tüm kullanıcıya e-posta gönderme hatası:', emailError);
-            }
-          }
-          
-          // SMS bildirimi
-          if (notificationSMS && user.phone) {
-            try {
-              const smsMessage = `Yeni Randevu: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
-              console.log('SMS gönderiliyor:', user.phone, smsMessage);
-              const smsResult = await smsService.sendSMS(user.phone, smsMessage);
-              console.log('SMS gönderim sonucu:', smsResult);
-              if (smsResult.success) {
-                console.log('Tüm kullanıcıya SMS başarıyla gönderildi:', user.phone);
-              } else {
-                console.error('SMS gönderim başarısız:', smsResult.error);
-              }
-            } catch (smsError) {
-              console.error('Tüm kullanıcıya SMS gönderme hatası:', smsError);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Tüm kullanıcıları getirme hatası:', error);
-      }
-    }
-
-    // Hatırlatma kaydı oluştur (eğer reminderDateTime varsa)
-    if (reminderDateTime) {
+    // Hatırlatma kaydı oluştur (eğer reminderEnabled true ve reminderDateTime varsa)
+    if (reminderEnabled && reminderDateTime) {
       try {
         console.log('📅 Hatırlatma zamanlanıyor:', {
           appointmentId,
           reminderDateTime,
+          reminderEnabled,
           appointmentDate: date,
           appointmentTime: startTime
         });
+        
+        // Türkiye saati için +3 saat ekle
+        const reminderDateTimeWithTimezone = new Date(new Date(reminderDateTime).getTime() + (3 * 60 * 60 * 1000));
+        const reminderTimeForDB = reminderDateTimeWithTimezone.toISOString().slice(0, 19).replace('T', ' ');
+        
+        console.log('⏰ Orijinal reminderDateTime:', reminderDateTime);
+        console.log('⏰ +3 saat eklenmiş:', reminderDateTimeWithTimezone.toISOString());
+        console.log('⏰ DB formatı:', reminderTimeForDB);
         
         // Geçmiş zaman kontrolü
         if (new Date(reminderDateTime) <= new Date()) {
           console.log('⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı');
         } else {
-          // Doğrudan reminderDateTime ile hatırlatma kaydı oluştur
+          // +3 saat eklenmiş reminderDateTime ile hatırlatma kaydı oluştur
           const [reminderResult] = await db.execute(
             `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 
              VALUES (?, ?, 'scheduled', NOW(), NOW())`,
-            [appointmentId, reminderDateTime]
+            [appointmentId, reminderTimeForDB]
           );
           
           if (reminderResult.insertId) {
-            console.log('✅ Hatırlatma başarıyla zamanlandı');
+            console.log('✅ Hatırlatma başarıyla zamanlandı:', {
+              reminderId: reminderResult.insertId,
+              appointmentId,
+              originalReminderDateTime: reminderDateTime,
+              adjustedReminderTime: reminderTimeForDB
+            });
           } else {
             console.log('⚠️ Hatırlatma zamanlanamadı');
           }
@@ -804,6 +640,10 @@ const createAppointment = async (req, res) => {
       } catch (reminderError) {
         console.error('Hatırlatma kaydı oluşturma hatası:', reminderError);
       }
+    } else if (reminderEnabled && !reminderDateTime) {
+      console.log('⚠️ Hatırlatma etkin ama reminderDateTime yok');
+    } else {
+      console.log('ℹ️ Hatırlatma etkin değil, zamanlanmadı');
     }
 
     // Aktivite kaydı oluştur
@@ -906,6 +746,7 @@ const createAppointment = async (req, res) => {
       console.error('Socket.IO event gönderme hatası:', socketError);
     }
 
+    // Response'u hemen gönder - bildirimler arka planda çalışacak
     res.status(201).json({
       success: true,
       data: newAppointment[0],
@@ -913,7 +754,190 @@ const createAppointment = async (req, res) => {
       message: `Randevu başarıyla oluşturuldu${createdAppointments.length > 1 ? ` (${createdAppointments.length - 1} tekrarlanan randevu dahil)` : ''}`
     });
     
-    console.log('Başarılı yanıt gönderildi.');
+    console.log('Başarılı yanıt gönderildi, bildirimler arka planda gönderiliyor...');
+
+    // Bildirim gönderme işlemlerini arka planda paralel olarak çalıştır
+    const sendNotificationsAsync = async () => {
+      const appointmentData = {
+        title,
+        date,
+        startTime,
+        endTime,
+        description,
+        location
+      };
+
+      const notificationPromises = [];
+
+      // Davetli kişilere bildirim gönder
+      if (selectedContacts && selectedContacts.length > 0) {
+        console.log('Davetli kişilere bildirim gönderiliyor:', selectedContacts);
+        
+        for (const contact of selectedContacts) {
+          // E-posta bildirimi
+          if (notificationEmail && contact.email) {
+            notificationPromises.push(
+              emailService.sendAppointmentNotification(
+                appointmentData,
+                contact.email,
+                'created'
+              ).then(() => {
+                console.log('Davetli kişiye e-posta gönderildi:', contact.email);
+              }).catch(emailError => {
+                console.error('Davetli kişiye e-posta gönderme hatası:', emailError);
+              })
+            );
+          }
+          
+          // SMS bildirimi
+          if (notificationSMS && contact.phone) {
+            const smsMessage = `Randevu Daveti: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
+            notificationPromises.push(
+              smsService.sendSMS(contact.phone, smsMessage).then(smsResult => {
+                console.log('Davetli SMS gönderim sonucu:', smsResult);
+                if (smsResult.success) {
+                  console.log('Davetli kişiye SMS başarıyla gönderildi:', contact.phone);
+                } else {
+                  console.error('Davetli SMS gönderim başarısız:', smsResult.error);
+                }
+              }).catch(smsError => {
+                console.error('Davetli kişiye SMS gönderme hatası:', smsError);
+              })
+            );
+          }
+        }
+      }
+
+      // Görünürlük kullanıcılarına bildirim gönder
+      if (visibleToUsers && visibleToUsers.length > 0) {
+        console.log('Görünürlük kullanıcılarına bildirim gönderiliyor:', visibleToUsers);
+        
+        for (const user of visibleToUsers) {
+          // Uygulama içi bildirim gönder
+          notificationPromises.push(
+            notificationsController.createNotification(
+              user.id,
+              'Yeni Randevu',
+              `${title} - ${date} ${startTime}`,
+              'appointment_created',
+              appointmentId,
+              'appointments'
+            ).then(() => {
+              console.log('Kullanıcıya uygulama içi bildirim gönderildi:', user.id);
+            }).catch(notificationError => {
+              console.error('Uygulama içi bildirim gönderme hatası:', notificationError);
+            })
+          );
+          
+          // E-posta bildirimi
+          if (notificationEmail && user.email) {
+            notificationPromises.push(
+              emailService.sendAppointmentNotification(
+                appointmentData,
+                user.email,
+                'created'
+              ).then(() => {
+                console.log('Kullanıcıya e-posta gönderildi:', user.email);
+              }).catch(emailError => {
+                console.error('Kullanıcıya e-posta gönderme hatası:', emailError);
+              })
+            );
+          }
+          
+          // SMS bildirimi
+          if (notificationSMS && user.phone) {
+            const smsMessage = `Yeni Randevu: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
+            notificationPromises.push(
+              smsService.sendSMS(user.phone, smsMessage).then(smsResult => {
+                console.log('Kullanıcı SMS gönderim sonucu:', smsResult);
+                if (smsResult.success) {
+                  console.log('Kullanıcıya SMS başarıyla gönderildi:', user.phone);
+                } else {
+                  console.error('Kullanıcı SMS gönderim başarısız:', smsResult.error);
+                }
+              }).catch(smsError => {
+                console.error('Kullanıcıya SMS gönderme hatası:', smsError);
+              })
+            );
+          }
+        }
+      }
+
+      // Tüm kullanıcılara gönder seçeneği
+      if (visibleToAll) {
+        console.log('Tüm kullanıcılara bildirim gönderiliyor...');
+        try {
+          const [allUsers] = await db.execute('SELECT id, email, phone FROM users WHERE id != ?', [userId]);
+          
+          for (const user of allUsers) {
+            // Uygulama içi bildirim gönder
+            notificationPromises.push(
+              notificationsController.createNotification(
+                user.id,
+                'Yeni Randevu',
+                `${title} - ${date} ${startTime}`,
+                'appointment_created',
+                appointmentId,
+                'appointments'
+              ).then(() => {
+                console.log('Tüm kullanıcıya uygulama içi bildirim gönderildi:', user.id);
+              }).catch(notificationError => {
+                console.error('Tüm kullanıcıya uygulama içi bildirim gönderme hatası:', notificationError);
+              })
+            );
+            
+            // E-posta bildirimi
+            if (notificationEmail && user.email) {
+              notificationPromises.push(
+                emailService.sendAppointmentNotification(
+                  appointmentData,
+                  user.email,
+                  'created'
+                ).then(() => {
+                  console.log('Tüm kullanıcıya e-posta gönderildi:', user.email);
+                }).catch(emailError => {
+                  console.error('Tüm kullanıcıya e-posta gönderme hatası:', emailError);
+                })
+              );
+            }
+            
+            // SMS bildirimi
+            if (notificationSMS && user.phone) {
+              const smsMessage = `Yeni Randevu: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
+              notificationPromises.push(
+                smsService.sendSMS(user.phone, smsMessage).then(smsResult => {
+                  console.log('SMS gönderim sonucu:', smsResult);
+                  if (smsResult.success) {
+                    console.log('Tüm kullanıcıya SMS başarıyla gönderildi:', user.phone);
+                  } else {
+                    console.error('SMS gönderim başarısız:', smsResult.error);
+                  }
+                }).catch(smsError => {
+                  console.error('Tüm kullanıcıya SMS gönderme hatası:', smsError);
+                })
+              );
+            }
+          }
+        } catch (error) {
+          console.error('Tüm kullanıcıları getirme hatası:', error);
+        }
+      }
+
+      // Tüm bildirimları paralel olarak gönder
+      if (notificationPromises.length > 0) {
+        try {
+          await Promise.allSettled(notificationPromises);
+          console.log('Tüm bildirimler gönderildi (başarılı/başarısız)');
+        } catch (error) {
+          console.error('Bildirim gönderme genel hatası:', error);
+        }
+      }
+    };
+
+    // Bildirimları arka planda çalıştır (await kullanmıyoruz)
+    sendNotificationsAsync().catch(error => {
+      console.error('Arka plan bildirim gönderme hatası:', error);
+    });
   } catch (error) {
     console.error('=== RANDEVU OLUŞTURMA HATASI ===');
     console.error('Hata detayı:', error);
