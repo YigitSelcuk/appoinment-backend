@@ -516,7 +516,7 @@ const downloadCVFile = async (req, res) => {
 
     // Dosya adından CV'yi bul - JSON array içinde arama yap
     const [cvs] = await promisePool.execute(
-      'SELECT * FROM cvs WHERE JSON_CONTAINS(cv_dosyasi, JSON_QUOTE(?)) OR cv_dosyasi = ?',
+      'SELECT * FROM cvs WHERE JSON_SEARCH(cv_dosyasi, \'one\', ?) IS NOT NULL OR cv_dosyasi = ?',
       [filename, filename]
     );
 

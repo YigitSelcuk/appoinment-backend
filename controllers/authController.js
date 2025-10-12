@@ -47,7 +47,16 @@ exports.login = async (req, res) => {
     const updateOnlineQuery = 'UPDATE users SET is_online = TRUE, last_seen = CURRENT_TIMESTAMP WHERE id = ?';
     await db.query(updateOnlineQuery, [user.id]);
 
-    // Access Token (kısa süreli - 15 dakika)
+    // permissions alanını parse et
+    const userPermissions = user.permissions ? (() => {
+      try { 
+        return typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; 
+      } catch (e) { 
+        return null; 
+      }
+    })() : null;
+
+    // Access Token (orta süreli - 3 saat)
     const accessToken = jwt.sign(
       {
         id: user.id,
@@ -55,10 +64,11 @@ exports.login = async (req, res) => {
         role: user.role,
         name: user.name,
         department: user.department,
+        permissions: userPermissions,
         type: 'access'
       },
       process.env.JWT_SECRET,
-      { expiresIn: '15m' }
+      { expiresIn: '3h' }
     );
 
     // Refresh Token (uzun süreli - 7 gün)
@@ -84,15 +94,6 @@ exports.login = async (req, res) => {
     // Şifreyi response'dan çıkar
     const { password: _, ...userWithoutPassword } = user;
     userWithoutPassword.is_online = true;
-    
-    // permissions alanını ekle (varsa)
-    userWithoutPassword.permissions = user.permissions ? (() => {
-      try { 
-        return typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; 
-      } catch (e) { 
-        return null; 
-      }
-    })() : null;
 
     // Sadece gerekli kullanıcı bilgilerini gönder (hassas bilgileri çıkar)
     const safeUserData = {
@@ -101,7 +102,8 @@ exports.login = async (req, res) => {
       email: userWithoutPassword.email,
       role: userWithoutPassword.role,
       department: userWithoutPassword.department,
-      is_online: userWithoutPassword.is_online
+      is_online: userWithoutPassword.is_online,
+      permissions: userPermissions
     };
 
     res.json({
@@ -237,6 +239,15 @@ exports.refreshToken = async (req, res) => {
 
     const user = users[0];
 
+    // permissions alanını parse et
+    const userPermissions = user.permissions ? (() => {
+      try { 
+        return typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; 
+      } catch (e) { 
+        return null; 
+      }
+    })() : null;
+
     // Yeni access token oluştur
     const newAccessToken = jwt.sign(
       {
@@ -245,10 +256,11 @@ exports.refreshToken = async (req, res) => {
         role: user.role,
         name: user.name,
         department: user.department,
+        permissions: userPermissions,
         type: 'access'
       },
       process.env.JWT_SECRET,
-      { expiresIn: '15m' }
+      { expiresIn: '3h' }
     );
 
     res.json({
@@ -315,7 +327,10 @@ exports.verify = async (req, res) => {
         id: req.user.id,
         userId: req.user.userId,
         email: req.user.email,
-        role: req.user.role
+        role: req.user.role,
+        name: req.user.name,
+        department: req.user.department,
+        permissions: req.user.permissions
       }
     });
   } catch (error) {

@@ -17,7 +17,7 @@ const checkAppointmentConflict = async (userId, date, startTime, endTime, exclud
       WHERE user_id = ?
       AND DATE(date) = ?
       AND NOT (end_time <= ? OR start_time >= ?)
-      AND status NOT IN ('COMPLETED', 'CANCELLED')
+      AND status NOT IN ('COMPLETED', 'CANCELLED', 'CONFIRMED')
     `;
     
     // İki randevu çakışmıyor ancak ve ancak:
@@ -64,7 +64,7 @@ const checkGlobalAppointmentConflict = async (date, startTime, endTime, excludeI
       FROM appointments 
       WHERE DATE(date) = ?
       AND NOT (end_time <= ? OR start_time >= ?)
-      AND status NOT IN ('COMPLETED', 'CANCELLED')
+      AND status NOT IN ('COMPLETED', 'CANCELLED', 'CONFIRMED')
     `;
     
     const params = [date, startTime, endTime];
@@ -147,16 +147,33 @@ const getAppointments = async (req, res) => {
             a.user_id = ? OR 
             a.visible_to_all = TRUE OR
             (
-              JSON_CONTAINS(JSON_EXTRACT(a.visible_to_users, '$[*].id'), CAST(? AS JSON)) = 1 OR
-              JSON_CONTAINS(JSON_EXTRACT(a.visible_to_users, '$[*].id'), JSON_QUOTE(?)) = 1
+              a.visible_to_users IS NOT NULL AND 
+              (
+                JSON_SEARCH(a.visible_to_users, 'one', ?) IS NOT NULL OR
+                JSON_SEARCH(a.visible_to_users, 'one', CAST(? AS CHAR)) IS NOT NULL
+              )
             )
           )
         ORDER BY a.date, a.start_time
       `;
-      queryParams = [userId, userId, userId.toString()];
+      queryParams = [userId, userId.toString(), userId];
     }
     
+    console.log('🔴 getAppointmentsByDateRange DEBUG - Query:', query);
+    console.log('🔴 getAppointmentsByDateRange DEBUG - Query params:', queryParams);
+    
     const [appointments] = await db.execute(query, queryParams);
+    
+    console.log('🔴 getAppointmentsByDateRange DEBUG - Found appointments:', appointments.length);
+    if (appointments.length > 0) {
+      console.log('🔴 getAppointmentsByDateRange DEBUG - First appointment:', {
+        id: appointments[0].id,
+        title: appointments[0].title,
+        date: appointments[0].date,
+        status: appointments[0].status,
+        user_id: appointments[0].user_id
+      });
+    }
     
     // JSON verilerini parse et
     for (let appointment of appointments) {
@@ -267,13 +284,176 @@ const checkConflict = async (req, res) => {
 };
 
 // Yeni randevu oluştur
+// Tekrarlanan randevuları oluşturan yardımcı fonksiyon
+const createRepeatedAppointments = async ({
+  originalAppointment,
+  repeat,
+  title,
+  description,
+  startTime,
+  endTime,
+  color,
+  location,
+  userId,
+  selectedContacts,
+  visibleToUsers,
+  visibleToAll,
+  notificationEmail,
+  notificationSMS
+}) => {
+  const originalDate = new Date(originalAppointment.date);
+  
+  // Makul tekrarlama sayısı belirle
+  const maxRepeats = repeat === 'HAFTALIK' ? 12 : 6; // 12 hafta veya 6 ay
+  
+  // JSON verilerini önceden hazırla
+  const inviteesJson = selectedContacts && selectedContacts.length > 0 
+    ? JSON.stringify(selectedContacts.map(contact => ({
+        name: contact.name,
+        email: contact.email || null,
+        phone: contact.phone1 || contact.phone || null
+      })))
+    : JSON.stringify([]);
+
+  const visibleUsersJson = visibleToUsers && visibleToUsers.length > 0
+    ? JSON.stringify(visibleToUsers.map(user => ({
+        id: user.id,
+        name: user.name,
+        email: user.email
+      })))
+    : JSON.stringify([]);
+  
+  // Tüm randevu verilerini toplu olarak hazırla
+  const appointmentValues = [];
+  
+  for (let i = 1; i <= maxRepeats; i++) {
+    let nextDate;
+    
+    if (repeat === 'HAFTALIK') {
+      nextDate = new Date(originalDate);
+      nextDate.setDate(originalDate.getDate() + (i * 7));
+    } else if (repeat === 'AYLIK') {
+      nextDate = new Date(originalDate);
+      nextDate.setMonth(originalDate.getMonth() + i);
+      
+      // Eğer hedef ay daha az güne sahipse (örn. 31 Ocak -> 28/29 Şubat)
+      if (nextDate.getDate() !== originalDate.getDate()) {
+        nextDate.setDate(0); // Önceki ayın son günü
+      }
+    }
+    
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+    
+    // Her randevu için parametre dizisi
+    appointmentValues.push([
+      userId,
+      title,
+      nextDateStr,
+      startTime,
+      endTime,
+      originalAppointment.created_by_name || null,
+      originalAppointment.created_by_email || null,
+      originalAppointment.attendee_name || null,
+      originalAppointment.attendee_email || null,
+      originalAppointment.attendee_phone || null,
+      description,
+      color,
+      location,
+      notificationEmail || false,
+      notificationSMS || false,
+      null, // reminder_value
+      null, // reminder_unit
+      null, // google_event_id
+      'SYSTEM', // source
+      'SCHEDULED', // status
+      inviteesJson,
+      visibleUsersJson,
+      visibleToAll || false,
+      repeat || 'TEKRARLANMAZ'
+    ]);
+  }
+  
+  try {
+    // Tek sorguda tüm randevuları oluştur (BATCH INSERT)
+    const placeholders = appointmentValues.map(() => 
+      '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+    ).join(', ');
+    
+    const batchInsertQuery = `
+      INSERT INTO appointments (
+        user_id, title, date, start_time, end_time,
+        created_by_name, created_by_email,
+        attendee_name, attendee_email, attendee_phone,
+        description, color, location,
+        notification_email, notification_sms,
+        reminder_value, reminder_unit,
+        google_event_id, source,
+        status,
+        invitees, visible_to_users,
+        visible_to_all, repeat_type,
+        created_at, updated_at
+      ) VALUES ${placeholders}
+    `;
+    
+    // Tüm parametreleri düzleştir
+    const flatParams = appointmentValues.flat();
+    
+    // Batch INSERT çalıştır
+    const [result] = await db.execute(batchInsertQuery, flatParams);
+    
+    console.log(`✅ ${maxRepeats} tekrarlanan randevu tek sorguda oluşturuldu`);
+    console.log('Batch INSERT sonucu:', {
+      affectedRows: result.affectedRows,
+      insertId: result.insertId
+    });
+    
+    // Socket.IO ile tek event gönder
+    try {
+      const io = getIO();
+      if (io) {
+        // Randevu sahibine gönder
+        io.to(`user-${userId}`).emit('appointments-batch-created', {
+          count: maxRepeats,
+          type: repeat,
+          message: `${maxRepeats} tekrarlanan randevu oluşturuldu`
+        });
+
+        // Görünürlük listesindeki kullanıcılara da gönder
+        if (visibleToUsers && visibleToUsers.length > 0) {
+          visibleToUsers.forEach(visibleUser => {
+            if (visibleUser.id && visibleUser.id !== userId) {
+              io.to(`user-${visibleUser.id}`).emit('appointments-batch-created', {
+                count: maxRepeats,
+                type: repeat,
+                message: `Size görünür ${maxRepeats} tekrarlanan randevu oluşturuldu`
+              });
+            }
+          });
+        }
+
+        // Tüm kullanıcılara görünürse herkese gönder
+        if (visibleToAll) {
+          io.emit('appointments-batch-created', {
+            count: maxRepeats,
+            type: repeat,
+            message: `Herkese görünür ${maxRepeats} tekrarlanan randevu oluşturuldu`
+          });
+        }
+      }
+    } catch (socketError) {
+      console.error('Socket.IO event gönderme hatası:', socketError);
+    }
+    
+    return { success: true, count: maxRepeats };
+    
+  } catch (error) {
+    console.error('Batch INSERT hatası:', error);
+    throw error;
+  }
+};
+
 const createAppointment = async (req, res) => {
   try {
-    console.log('=== RANDEVU OLUŞTURMA İSTEĞİ ===');
-    console.log('req.body:', JSON.stringify(req.body, null, 2));
-    console.log('req.user:', req.user);
-    console.log('visibleToUsers from req.body:', req.body.visibleToUsers);
-    console.log('visibleToAll from req.body:', req.body.visibleToAll);
     
     const userId = req.user.id;
     const userName = req.user.name;
@@ -292,7 +472,8 @@ const createAppointment = async (req, res) => {
       visibleToUsers,
       visibleToAll,
       location,
-      reminderDateTime
+      reminderDateTime,
+      repeat
     } = req.body;
     
 
@@ -352,9 +533,9 @@ const createAppointment = async (req, res) => {
         google_event_id, source,
         status,
         invitees, visible_to_users,
-        visible_to_all,
+        visible_to_all, repeat_type,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `;
     
     // JSON verilerini hazırla
@@ -385,7 +566,8 @@ const createAppointment = async (req, res) => {
       'SYSTEM', // source - kendi sistemimizden eklenen randevular
       status || 'SCHEDULED',
       inviteesJson, visibleUsersJson, // attendees sütunu yok, sadece invitees ve visible_to_users
-      visibleToAll || false
+      visibleToAll || false,
+      repeat || 'TEKRARLANMAZ' // repeat_type
     ];
     
     console.log('Veritabanına kaydetme sorgusu:', query);
@@ -656,15 +838,69 @@ const createAppointment = async (req, res) => {
     console.log('Randevu başarıyla oluşturuldu, yanıt gönderiliyor...');
     console.log('Oluşturulan randevu:', newAppointment[0]);
     
+    // Tekrarlanan randevuları oluştur
+    let createdAppointments = [newAppointment[0]];
+    
+    if (repeat && repeat !== 'TEKRARLANMAZ') {
+      try {
+        const repeatAppointments = await createRepeatedAppointments({
+          originalAppointment: newAppointment[0],
+          repeat,
+          title,
+          description,
+          startTime,
+          endTime,
+          color,
+          location,
+          userId,
+          selectedContacts,
+          visibleToUsers,
+          visibleToAll,
+          notificationEmail,
+          notificationSMS
+        });
+        createdAppointments = [...createdAppointments, ...repeatAppointments];
+        console.log(`${repeatAppointments.length} tekrarlanan randevu oluşturuldu`);
+      } catch (repeatError) {
+        console.error('Tekrarlanan randevuları oluşturma hatası:', repeatError);
+        // Ana randevu oluşturuldu, tekrarlanan randevularda hata olsa da devam et
+      }
+    } else {
+      console.log('Tekrarlanan randevu oluşturulmayacak - repeat:', repeat);
+    }
+
     // Socket.IO ile real-time güncelleme gönder
     try {
       const io = getIO();
       if (io) {
-        io.emit('appointment-created', {
+        // Randevu sahibine gönder
+        io.to(`user-${userId}`).emit('appointment-created', {
           appointment: newAppointment[0],
           message: 'Yeni randevu eklendi'
         });
-        console.log('Socket.IO appointment-created event gönderildi');
+        console.log(`Socket.IO appointment-created event kullanıcı ${userId} odasına gönderildi`);
+
+        // Görünürlük listesindeki kullanıcılara da gönder
+        if (visibleToUsers && visibleToUsers.length > 0) {
+          visibleToUsers.forEach(visibleUser => {
+            if (visibleUser.id && visibleUser.id !== userId) {
+              io.to(`user-${visibleUser.id}`).emit('appointment-created', {
+                appointment: newAppointment[0],
+                message: 'Size görünür yeni randevu eklendi'
+              });
+              console.log(`Socket.IO appointment-created event görünür kullanıcı ${visibleUser.id} odasına gönderildi`);
+            }
+          });
+        }
+
+        // Tüm kullanıcılara görünürse herkese gönder
+        if (visibleToAll) {
+          io.emit('appointment-created', {
+            appointment: newAppointment[0],
+            message: 'Herkese görünür yeni randevu eklendi'
+          });
+          console.log('Socket.IO appointment-created event tüm kullanıcılara gönderildi');
+        }
       }
     } catch (socketError) {
       console.error('Socket.IO event gönderme hatası:', socketError);
@@ -673,7 +909,8 @@ const createAppointment = async (req, res) => {
     res.status(201).json({
       success: true,
       data: newAppointment[0],
-      message: 'Randevu başarıyla oluşturuldu'
+      createdAppointments: createdAppointments,
+      message: `Randevu başarıyla oluşturuldu${createdAppointments.length > 1 ? ` (${createdAppointments.length - 1} tekrarlanan randevu dahil)` : ''}`
     });
     
     console.log('Başarılı yanıt gönderildi.');
@@ -899,11 +1136,43 @@ const updateAppointment = async (req, res) => {
     try {
       const io = getIO();
       if (io) {
-        io.emit('appointment-updated', {
-          appointment: updatedAppointment[0],
+        const appointment = updatedAppointment[0];
+        
+        // Randevu sahibine gönder
+        io.to(`user-${userId}`).emit('appointment-updated', {
+          appointment: appointment,
           message: 'Randevu güncellendi'
         });
-        console.log('Socket.IO appointment-updated event gönderildi');
+        console.log(`Socket.IO appointment-updated event kullanıcı ${userId} odasına gönderildi`);
+
+        // Görünürlük listesindeki kullanıcılara da gönder
+        if (appointment.visible_to_users) {
+          try {
+            const visibleUsers = JSON.parse(appointment.visible_to_users);
+            if (Array.isArray(visibleUsers)) {
+              visibleUsers.forEach(visibleUser => {
+                if (visibleUser.id && visibleUser.id !== userId) {
+                  io.to(`user-${visibleUser.id}`).emit('appointment-updated', {
+                    appointment: appointment,
+                    message: 'Size görünür randevu güncellendi'
+                  });
+                  console.log(`Socket.IO appointment-updated event görünür kullanıcı ${visibleUser.id} odasına gönderildi`);
+                }
+              });
+            }
+          } catch (parseError) {
+            console.error('visible_to_users parse hatası:', parseError);
+          }
+        }
+
+        // Tüm kullanıcılara görünürse herkese gönder
+        if (appointment.visible_to_all) {
+          io.emit('appointment-updated', {
+            appointment: appointment,
+            message: 'Herkese görünür randevu güncellendi'
+          });
+          console.log('Socket.IO appointment-updated event tüm kullanıcılara gönderildi');
+        }
       }
     } catch (socketError) {
       console.error('Socket.IO event gönderme hatası:', socketError);
@@ -980,12 +1249,46 @@ const deleteAppointment = async (req, res) => {
     try {
       const io = getIO();
       if (io) {
-        io.emit('appointment-deleted', {
+        const appointment = existingAppointment[0];
+        
+        // Randevu sahibine gönder
+        io.to(`user-${userId}`).emit('appointment-deleted', {
           appointmentId: appointmentId,
-          appointment: existingAppointment[0],
+          appointment: appointment,
           message: 'Randevu silindi'
         });
-        console.log('Socket.IO appointment-deleted event gönderildi');
+        console.log(`Socket.IO appointment-deleted event kullanıcı ${userId} odasına gönderildi`);
+
+        // Görünürlük listesindeki kullanıcılara da gönder
+        if (appointment.visible_to_users) {
+          try {
+            const visibleUsers = JSON.parse(appointment.visible_to_users);
+            if (Array.isArray(visibleUsers)) {
+              visibleUsers.forEach(visibleUser => {
+                if (visibleUser.id && visibleUser.id !== userId) {
+                  io.to(`user-${visibleUser.id}`).emit('appointment-deleted', {
+                    appointmentId: appointmentId,
+                    appointment: appointment,
+                    message: 'Size görünür randevu silindi'
+                  });
+                  console.log(`Socket.IO appointment-deleted event görünür kullanıcı ${visibleUser.id} odasına gönderildi`);
+                }
+              });
+            }
+          } catch (parseError) {
+            console.error('visible_to_users parse hatası:', parseError);
+          }
+        }
+
+        // Tüm kullanıcılara görünürse herkese gönder
+        if (appointment.visible_to_all) {
+          io.emit('appointment-deleted', {
+            appointmentId: appointmentId,
+            appointment: appointment,
+            message: 'Herkese görünür randevu silindi'
+          });
+          console.log('Socket.IO appointment-deleted event tüm kullanıcılara gönderildi');
+        }
       }
     } catch (socketError) {
       console.error('Socket.IO event gönderme hatası:', socketError);
@@ -1018,13 +1321,15 @@ const getAppointmentsByDateRange = async (req, res) => {
       });
     }
 
-    // Tarihleri doğrudan kullan (DATE tipinde karşılaştırma için)
-    console.log('Tarih aralığı:', start, 'ile', end);
-
     // BAŞKAN departmanı, admin veya başkan rolündeki kullanıcılar tüm randevuları görebilir
     const canViewAll = user.role === 'admin' || 
                       user.role === 'başkan' || 
                       user.department === 'BAŞKAN';
+
+    // Tarihleri doğrudan kullan (DATE tipinde karşılaştırma için)
+    console.log('🔴 getAppointmentsByDateRange DEBUG - Tarih aralığı:', start, 'ile', end);
+    console.log('🔴 getAppointmentsByDateRange DEBUG - User ID:', userId);
+    console.log('🔴 getAppointmentsByDateRange DEBUG - Can view all:', canViewAll);
     
     let query, queryParams;
     
@@ -1054,13 +1359,16 @@ const getAppointmentsByDateRange = async (req, res) => {
           a.user_id = ? OR 
           a.visible_to_all = TRUE OR
           (
-            JSON_CONTAINS(JSON_EXTRACT(a.visible_to_users, '$[*].id'), CAST(? AS JSON)) = 1 OR
-            JSON_CONTAINS(JSON_EXTRACT(a.visible_to_users, '$[*].id'), JSON_QUOTE(?)) = 1
+            a.visible_to_users IS NOT NULL AND 
+            (
+              JSON_SEARCH(a.visible_to_users, 'one', ?) IS NOT NULL OR
+              JSON_SEARCH(a.visible_to_users, 'one', CAST(? AS CHAR)) IS NOT NULL
+            )
           )
         ) AND DATE(a.date) BETWEEN ? AND ?
         ORDER BY a.date, a.start_time
       `;
-      queryParams = [userId, userId, userId.toString(), start, end];
+      queryParams = [userId, userId.toString(), userId, start, end];
     }
     
     const [appointments] = await db.execute(query, queryParams);
@@ -1107,11 +1415,12 @@ const getAppointmentsByDateRange = async (req, res) => {
 // Kişilerin önceki randevularını getir
 const getInviteePreviousAppointments = async (req, res) => {
   try {
-    const { inviteeEmails, currentDate, page = 1, limit = 5 } = req.body;
+    const { inviteeEmails, currentDate, currentTime, page = 1, limit = 5 } = req.body;
     
     console.log('=== ÖNCEKI RANDEVULAR İSTEĞİ ===');
     console.log('inviteeEmails:', inviteeEmails);
     console.log('currentDate:', currentDate);
+    console.log('currentTime:', currentTime);
     console.log('page:', page, 'limit:', limit);
     
     if (!inviteeEmails || !Array.isArray(inviteeEmails) || inviteeEmails.length === 0) {
@@ -1124,6 +1433,7 @@ const getInviteePreviousAppointments = async (req, res) => {
     const emailConditions = inviteeEmails.map(() => 'JSON_SEARCH(a.invitees, "one", ?, NULL, "$[*].email") IS NOT NULL').join(' OR ');
     
     // Ana sorgu - önceki randevuları getir (JSON invitees alanından)
+    // Tarih ve saat kontrolü: ya önceki tarihte ya da aynı tarihte ama önceki saatte
     const query = `
       SELECT DISTINCT
         a.id,
@@ -1142,7 +1452,7 @@ const getInviteePreviousAppointments = async (req, res) => {
         creator.email as creator_email
       FROM appointments a
       LEFT JOIN users creator ON a.user_id = creator.id
-      WHERE a.date < ? 
+      WHERE (a.date < ? OR (a.date = ? AND a.start_time < ?))
         AND (${emailConditions})
       ORDER BY a.date DESC, a.start_time DESC
       LIMIT ? OFFSET ?
@@ -1152,15 +1462,15 @@ const getInviteePreviousAppointments = async (req, res) => {
     const countQuery = `
       SELECT COUNT(DISTINCT a.id) as total
       FROM appointments a
-      WHERE a.date < ? 
+      WHERE (a.date < ? OR (a.date = ? AND a.start_time < ?))
         AND (${emailConditions})
     `;
 
     console.log('Executing query:', query);
-    console.log('Parameters:', [currentDate, ...inviteeEmails, limit.toString(), offset.toString()]);
+    console.log('Parameters:', [currentDate, currentDate, currentTime || '23:59', ...inviteeEmails, limit.toString(), offset.toString()]);
 
-    const [appointments] = await db.execute(query, [currentDate, ...inviteeEmails, limit.toString(), offset.toString()]);
-    const [countResult] = await db.execute(countQuery, [currentDate, ...inviteeEmails]);
+    const [appointments] = await db.execute(query, [currentDate, currentDate, currentTime || '23:59', ...inviteeEmails, limit.toString(), offset.toString()]);
+    const [countResult] = await db.execute(countQuery, [currentDate, currentDate, currentTime || '23:59', ...inviteeEmails]);
     
     console.log('Found appointments:', appointments.length);
     console.log('Total count:', countResult[0]?.total || 0);
@@ -1294,12 +1604,15 @@ const getAppointmentById = async (req, res) => {
           a.user_id = ? OR 
           a.visible_to_all = TRUE OR
           (
-            JSON_CONTAINS(JSON_EXTRACT(a.visible_to_users, '$[*].id'), CAST(? AS JSON)) = 1 OR
-            JSON_CONTAINS(JSON_EXTRACT(a.visible_to_users, '$[*].id'), JSON_QUOTE(?)) = 1
+            a.visible_to_users IS NOT NULL AND 
+            (
+              JSON_SEARCH(a.visible_to_users, 'one', ?) IS NOT NULL OR
+              JSON_SEARCH(a.visible_to_users, 'one', CAST(? AS CHAR)) IS NOT NULL
+            )
           )
         )
       `;
-      queryParams = [id, userId, userId, userId.toString()];
+      queryParams = [id, userId, userId.toString(), userId];
     }
     
     const [appointments] = await db.execute(query, queryParams);

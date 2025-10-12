@@ -48,4 +48,50 @@ router.post('/:id/resend-reminder', authenticateToken, resendReminder);
 // Hatırlatma zamanını güncelle
 router.put('/:id/reminder-time', authenticateToken, updateReminderTime);
 
+// Test endpoint - son eklenen randevuları getir
+router.get('/test/recent', authenticateToken, async (req, res) => {
+  try {
+    const db = require('../config/database');
+    const [appointments] = await db.execute(
+      'SELECT * FROM appointments ORDER BY created_at DESC LIMIT 10'
+    );
+    res.json({ success: true, appointments });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Veritabanı güncelleme endpoint'i - repeat alanı ekle
+router.post('/admin/add-repeat-column', authenticateToken, async (req, res) => {
+  try {
+    const db = require('../config/database');
+    
+    // Önce alanın var olup olmadığını kontrol et
+    const [columns] = await db.execute(
+      "SHOW COLUMNS FROM appointments LIKE 'repeat_type'"
+    );
+    
+    if (columns.length === 0) {
+      // repeat_type alanını ekle
+      await db.execute(`
+        ALTER TABLE appointments 
+        ADD COLUMN repeat_type ENUM('TEKRARLANMAZ', 'HAFTALIK', 'AYLIK') DEFAULT 'TEKRARLANMAZ' 
+        AFTER source
+      `);
+      
+      // Mevcut randevuları güncelle
+      await db.execute(`
+        UPDATE appointments SET repeat_type = 'TEKRARLANMAZ' WHERE repeat_type IS NULL
+      `);
+      
+      res.json({ success: true, message: 'repeat_type alanı başarıyla eklendi' });
+    } else {
+      res.json({ success: true, message: 'repeat_type alanı zaten mevcut' });
+    }
+  } catch (error) {
+    console.error('Veritabanı güncelleme hatası:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 module.exports = router;
