@@ -454,7 +454,6 @@ const createRepeatedAppointments = async ({
 
 const createAppointment = async (req, res) => {
   try {
-    
     const userId = req.user.id;
     const userName = req.user.name;
     const userEmail = req.user.email;
@@ -955,6 +954,11 @@ const updateAppointment = async (req, res) => {
   try {
     const userId = req.user.id;
     const appointmentId = req.params.id;
+    
+    console.log('=== BACKEND UPDATE APPOINTMENT ===');
+    console.log('appointmentId:', appointmentId);
+    console.log('userId:', userId);
+    console.log('req.body:', JSON.stringify(req.body, null, 2));
     const { 
       title, 
       date, 
@@ -971,7 +975,17 @@ const updateAppointment = async (req, res) => {
       visibleToUsers,
       visible_to_users,
       reminder_enabled,
-      reminder_datetime
+      reminder_datetime,
+      repeat_type,
+      notification_email,
+      notification_sms,
+      reminder_value,
+      reminder_unit,
+      invitees,
+      attendees,
+      location,
+      isAllDay,
+      isPrivate
     } = req.body;
 
     // Frontend'den gelen field name'leri normalize et
@@ -1034,6 +1048,8 @@ const updateAppointment = async (req, res) => {
     // Randevu sahibinin ID'sini al (güncellenen randevunun sahibi)
     const appointmentOwnerId = existingAppointment[0].user_id;
     
+
+    
     const conflicts = await checkGlobalAppointmentConflict(date, safeStartTime, safeEndTime, appointmentId, null); // userId=null ile TÜM randevuları kontrol et
     if (conflicts.length > 0) {
       return res.status(409).json({
@@ -1054,24 +1070,100 @@ const updateAppointment = async (req, res) => {
     const visibleUsersValue = visibleToUsers || visible_to_users || null;
     const visibleUsersJson = visibleUsersValue ? JSON.stringify(visibleUsersValue) : null;
 
+    // Invitees ve attendees JSON verilerini hazırla
+    const inviteesJson = invitees && invitees.length > 0 
+      ? JSON.stringify(invitees.map(contact => ({
+          name: contact.name,
+          email: contact.email || null,
+          phone: contact.phone1 || contact.phone || null
+        })))
+      : JSON.stringify([]);
+
+    const attendeesJson = attendees && attendees.length > 0
+      ? JSON.stringify(attendees.map(attendee => ({
+          name: attendee.name,
+          email: attendee.email || null,
+          phone: attendee.phone || null
+        })))
+      : JSON.stringify([]);
+
     const query = `
       UPDATE appointments 
       SET title = ?, date = ?, start_time = ?, end_time = ?, 
           attendee_name = ?, attendee_email = ?, attendee_phone = ?,
           description = ?, color = ?, google_event_id = ?,
-          status = ?, visible_to_all = ?, visible_to_users = ?, updated_at = NOW()
+          status = ?, visible_to_all = ?, visible_to_users = ?,
+          repeat_type = ?, notification_email = ?, notification_sms = ?,
+          reminder_value = ?, reminder_unit = ?, location = ?,
+          invitees = ?, attendees = ?, updated_at = NOW()
       WHERE id = ?
     `;
     
-    await db.execute(query, [
+    console.log('SQL Query:', query);
+    console.log('SQL Parameters:', [
       title, date, normalizedStartTime, normalizedEndTime, 
       attendeeName, attendeeEmail, attendeePhone,
-      description, color, google_event_id,
+      description, color, google_event_id || null,
       status || 'SCHEDULED',
       visibleToAllValue,
       visibleUsersJson,
+      repeat_type,
+      notification_email || false,
+      notification_sms || false,
+      reminder_value,
+      reminder_unit,
+      location,
+      inviteesJson,
+      attendeesJson,
       appointmentId
     ]);
+
+    const updateResult = await db.execute(query, [
+      title, date, normalizedStartTime, normalizedEndTime, 
+      attendeeName, attendeeEmail, attendeePhone,
+      description, color, google_event_id || null,
+      status || 'SCHEDULED',
+      visibleToAllValue,
+      visibleUsersJson,
+      repeat_type,
+      notification_email || false,
+      notification_sms || false,
+      reminder_value,
+      reminder_unit,
+      location,
+      inviteesJson,
+      attendeesJson,
+      appointmentId
+    ]);
+    
+    console.log('Update Result:', updateResult);
+    console.log('Affected Rows:', updateResult.affectedRows);
+
+    // Status değişikliği kontrolü ve bildirim gönderme
+    const oldStatus = existingAppointment[0].status;
+    const newStatus = status || 'SCHEDULED';
+    
+    if (oldStatus !== newStatus) {
+      console.log(`Status değişikliği algılandı: ${oldStatus} -> ${newStatus}`);
+      
+      // Status değişikliği bildirimini gönder
+      try {
+        await sendStatusChangeNotification(
+          appointmentId,
+          title,
+          oldStatus,
+          newStatus,
+          notification_email || false,
+          notification_sms || false,
+          attendeeEmail,
+          attendeePhone,
+          invitees,
+          visibleToUsers
+        );
+      } catch (notificationError) {
+        console.error('Status değişikliği bildirimi gönderilirken hata:', notificationError);
+      }
+    }
 
     // Aktivite kaydı oluştur
     try {
@@ -1202,6 +1294,10 @@ const updateAppointment = async (req, res) => {
       console.error('Socket.IO event gönderme hatası:', socketError);
     }
 
+    console.log('=== RESPONSE GÖNDERILIYOR ===');
+    console.log('updatedAppointment:', updatedAppointment);
+    console.log('updatedAppointment[0]:', updatedAppointment[0]);
+    
     res.json({
       success: true,
       data: updatedAppointment[0],
@@ -1963,6 +2059,154 @@ const getAppointmentStats = async (req, res) => {
       message: 'Randevu istatistikleri getirilemedi',
       error: error.message
     });
+  }
+};
+
+// Status değişikliği bildirim fonksiyonu
+const sendStatusChangeNotification = async (
+  appointmentId,
+  title,
+  oldStatus,
+  newStatus,
+  emailNotificationEnabled,
+  smsNotificationEnabled,
+  attendeeEmail,
+  attendeePhone,
+  invitees,
+  visibleToUsers
+) => {
+  try {
+    console.log('Status değişikliği bildirimi gönderiliyor:', {
+      appointmentId,
+      title,
+      oldStatus,
+      newStatus,
+      emailNotificationEnabled,
+      smsNotificationEnabled
+    });
+
+    // Status'ları Türkçe'ye çevir
+    const statusTranslations = {
+      'SCHEDULED': 'Planlandı',
+      'CONFIRMED': 'Onaylandı',
+      'COMPLETED': 'Tamamlandı',
+      'CANCELLED': 'İptal Edildi',
+      'RESCHEDULED': 'Yeniden Planlandı'
+    };
+
+    const oldStatusText = statusTranslations[oldStatus] || oldStatus;
+    const newStatusText = statusTranslations[newStatus] || newStatus;
+
+    // Bildirim mesajını oluştur
+    let notificationMessage = '';
+    if (newStatus === 'RESCHEDULED') {
+      notificationMessage = `"${title}" randevunuz yeniden planlandı.`;
+    } else if (newStatus === 'CANCELLED') {
+      notificationMessage = `"${title}" randevunuz iptal edildi.`;
+    } else if (newStatus === 'CONFIRMED') {
+      notificationMessage = `"${title}" randevunuz onaylandı.`;
+    } else if (newStatus === 'COMPLETED') {
+      notificationMessage = `"${title}" randevunuz tamamlandı.`;
+    } else {
+      notificationMessage = `"${title}" randevunuzun durumu "${oldStatusText}" den "${newStatusText}" olarak değiştirildi.`;
+    }
+
+    // E-posta bildirimi gönder
+    if (emailNotificationEnabled) {
+      const emailRecipients = [];
+      
+      // Attendee email'i varsa ekle
+      if (attendeeEmail) {
+        emailRecipients.push(attendeeEmail);
+      }
+      
+      // Invitees email'lerini ekle
+      if (invitees && Array.isArray(invitees)) {
+        invitees.forEach(invitee => {
+          if (invitee.email && !emailRecipients.includes(invitee.email)) {
+            emailRecipients.push(invitee.email);
+          }
+        });
+      }
+      
+      // Visible users email'lerini ekle
+      if (visibleToUsers && Array.isArray(visibleToUsers)) {
+        visibleToUsers.forEach(user => {
+          if (user.email && !emailRecipients.includes(user.email)) {
+            emailRecipients.push(user.email);
+          }
+        });
+      }
+
+      // E-posta gönder
+      for (const email of emailRecipients) {
+        try {
+          await emailService.sendEmail(
+            email,
+            'Randevu Durumu Değişikliği',
+            notificationMessage,
+            `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #3C02AA;">Randevu Durumu Değişikliği</h2>
+              <p>${notificationMessage}</p>
+              <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                <p><strong>Randevu:</strong> ${title}</p>
+                <p><strong>Eski Durum:</strong> ${oldStatusText}</p>
+                <p><strong>Yeni Durum:</strong> ${newStatusText}</p>
+              </div>
+              <p style="color: #666; font-size: 12px;">Bu otomatik bir bildirimdir.</p>
+            </div>
+            `
+          );
+          console.log(`Status değişikliği e-posta bildirimi gönderildi: ${email}`);
+        } catch (emailError) {
+          console.error(`E-posta gönderme hatası (${email}):`, emailError);
+        }
+      }
+    }
+
+    // SMS bildirimi gönder
+    if (smsNotificationEnabled) {
+      const smsRecipients = [];
+      
+      // Attendee phone'u varsa ekle
+      if (attendeePhone) {
+        smsRecipients.push(attendeePhone);
+      }
+      
+      // Invitees phone'larını ekle
+      if (invitees && Array.isArray(invitees)) {
+        invitees.forEach(invitee => {
+          if (invitee.phone && !smsRecipients.includes(invitee.phone)) {
+            smsRecipients.push(invitee.phone);
+          }
+        });
+      }
+      
+      // Visible users phone'larını ekle
+      if (visibleToUsers && Array.isArray(visibleToUsers)) {
+        visibleToUsers.forEach(user => {
+          if (user.phone && !smsRecipients.includes(user.phone)) {
+            smsRecipients.push(user.phone);
+          }
+        });
+      }
+
+      // SMS gönder
+      for (const phone of smsRecipients) {
+        try {
+          await smsService.sendSMS(phone, notificationMessage);
+          console.log(`Status değişikliği SMS bildirimi gönderildi: ${phone}`);
+        } catch (smsError) {
+          console.error(`SMS gönderme hatası (${phone}):`, smsError);
+        }
+      }
+    }
+
+    console.log('Status değişikliği bildirimleri başarıyla gönderildi');
+  } catch (error) {
+    console.error('Status değişikliği bildirimi gönderme hatası:', error);
+    throw error;
   }
 };
 
