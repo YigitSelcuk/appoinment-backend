@@ -115,7 +115,7 @@ const getAppointments = async (req, res) => {
     let query, queryParams;
     
     if (canViewAll) {
-      // Tüm randevuları görebilir (COMPLETED olanlar hariç)
+      // Tüm randevuları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -126,12 +126,12 @@ const getAppointments = async (req, res) => {
           COALESCE(creator.email, a.created_by_email) as created_by_email
         FROM appointments a
         LEFT JOIN users creator ON a.user_id = creator.id
-        WHERE a.status != 'COMPLETED'
+        WHERE a.status NOT IN ('COMPLETED', 'CANCELLED')
         ORDER BY a.date, a.start_time
       `;
       queryParams = [];
     } else {
-      // Normal kullanıcı - sadece kendi randevularını veya görünür olanları görebilir (COMPLETED olanlar hariç)
+      // Normal kullanıcı - sadece kendi randevularını veya görünür olanları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -143,7 +143,7 @@ const getAppointments = async (req, res) => {
         FROM appointments a
         LEFT JOIN users creator ON a.user_id = creator.id
         WHERE 
-          a.status != 'COMPLETED' AND (
+          a.status NOT IN ('COMPLETED', 'CANCELLED') AND (
             a.user_id = ? OR 
             a.visible_to_all = TRUE OR
             (
@@ -614,9 +614,21 @@ const createAppointment = async (req, res) => {
         console.log('⏰ +3 saat eklenmiş:', reminderDateTimeWithTimezone.toISOString());
         console.log('⏰ DB formatı:', reminderTimeForDB);
         
-        // Geçmiş zaman kontrolü
-        if (new Date(reminderDateTime) <= new Date()) {
-          console.log('⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı');
+        // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
+        // Türkiye saati için doğru karşılaştırma
+        const currentTimeUTC = new Date();
+        const reminderTimeUTC = new Date(reminderDateTime);
+        
+        console.log('⏰ Geçmiş zaman kontrolü:', {
+          currentTimeUTC: currentTimeUTC.toISOString(),
+          reminderTimeUTC: reminderTimeUTC.toISOString(),
+          currentTimeTR: currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
+          reminderTimeTR: reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+        });
+        
+        if (reminderTimeUTC <= currentTimeUTC) {
+          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}, Hatırlatma zamanı: ${reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`);
+          // Geçmiş zamanlı hatırlatma için uyarı mesajı ekle (response'a eklenecek)
         } else {
           // +3 saat eklenmiş reminderDateTime ile hatırlatma kaydı oluştur
           const [reminderResult] = await db.execute(
@@ -976,6 +988,8 @@ const updateAppointment = async (req, res) => {
       visible_to_users,
       reminder_enabled,
       reminder_datetime,
+      reminderEnabled,
+      reminderDateTime,
       repeat_type,
       notification_email,
       notification_sms,
@@ -991,6 +1005,8 @@ const updateAppointment = async (req, res) => {
     // Frontend'den gelen field name'leri normalize et
     const normalizedStartTime = start_time || startTime;
     const normalizedEndTime = end_time || endTime;
+
+
 
     // Önce randevunun var olup olmadığını kontrol et
     const [appointmentCheck] = await db.execute(
@@ -1146,8 +1162,31 @@ const updateAppointment = async (req, res) => {
     if (oldStatus !== newStatus) {
       console.log(`Status değişikliği algılandı: ${oldStatus} -> ${newStatus}`);
       
+      // Eğer randevu iptal edildiyse hatırlatmaları da iptal et
+      if (newStatus === 'CANCELLED') {
+        try {
+          await reminderService.cancelReminder(appointmentId);
+          console.log('Randevu iptal edildi, hatırlatmalar iptal edildi');
+        } catch (reminderError) {
+          console.error('Hatırlatma iptal hatası:', reminderError);
+        }
+      }
+      
       // Status değişikliği bildirimini gönder
       try {
+        // Randevu verilerini hazırla
+        const appointmentData = {
+          date,
+          startTime,
+          endTime,
+          location,
+          description,
+          attendee,
+          oldDate: existingAppointment[0].date,
+          oldStartTime: existingAppointment[0].start_time,
+          oldEndTime: existingAppointment[0].end_time
+        };
+
         await sendStatusChangeNotification(
           appointmentId,
           title,
@@ -1158,7 +1197,8 @@ const updateAppointment = async (req, res) => {
           attendeeEmail,
           attendeePhone,
           invitees,
-          visibleToUsers
+          visibleToUsers,
+          appointmentData
         );
       } catch (notificationError) {
         console.error('Status değişikliği bildirimi gönderilirken hata:', notificationError);
@@ -1221,16 +1261,17 @@ const updateAppointment = async (req, res) => {
         
         // Yeni hatırlatıcı ekle (geçmiş tarih kontrolü)
         const reminderDate = new Date(reminder_datetime);
-        const now = new Date();
+        const currentTime = new Date();
         
-        if (reminderDate > now) {
+        // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
+        if (reminderDate > currentTime) {
           await db.execute(
             'INSERT INTO appointment_reminders (appointment_id, reminder_datetime, status) VALUES (?, ?, ?)',
             [appointmentId, reminder_datetime, 'pending']
           );
-          console.log('Hatırlatıcı güncellendi:', reminder_datetime);
+          console.log(`✅ Hatırlatıcı güncellendi: ${reminder_datetime}`);
         } else {
-          console.log('Geçmiş tarihli hatırlatıcı eklenmedi:', reminder_datetime);
+          console.log(`⚠️ Geçmiş tarihli hatırlatıcı eklenmedi. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderDate.toLocaleString('tr-TR')}`);
         }
       } catch (reminderError) {
         console.error('Hatırlatıcı güncelleme hatası:', reminderError);
@@ -1292,6 +1333,84 @@ const updateAppointment = async (req, res) => {
       }
     } catch (socketError) {
       console.error('Socket.IO event gönderme hatası:', socketError);
+    }
+
+    // Hatırlatma kaydı oluştur (eğer reminderEnabled true ve reminderDateTime varsa)
+    if (reminderEnabled && reminderDateTime) {
+      try {
+        console.log('📅 Hatırlatma zamanlanıyor:', {
+          appointmentId,
+          reminderDateTime,
+          reminderEnabled,
+          appointmentDate: date,
+          appointmentTime: normalizedStartTime
+        });
+        
+        // Önce mevcut hatırlatmaları sil
+        await db.execute(
+          'DELETE FROM appointment_reminders WHERE appointment_id = ?',
+          [appointmentId]
+        );
+        
+        // Türkiye saati için +3 saat ekle
+        const reminderDateTimeWithTimezone = new Date(new Date(reminderDateTime).getTime() + (3 * 60 * 60 * 1000));
+        const reminderTimeForDB = reminderDateTimeWithTimezone.toISOString().slice(0, 19).replace('T', ' ');
+        
+        console.log('⏰ Orijinal reminderDateTime:', reminderDateTime);
+        console.log('⏰ +3 saat eklenmiş:', reminderDateTimeWithTimezone.toISOString());
+        console.log('⏰ DB formatı:', reminderTimeForDB);
+        
+        // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
+        // Türkiye saati için doğru karşılaştırma
+        const currentTimeUTC = new Date();
+        const reminderTimeUTC = new Date(reminderDateTime);
+        
+        console.log('⏰ Geçmiş zaman kontrolü:', {
+          currentTimeUTC: currentTimeUTC.toISOString(),
+          reminderTimeUTC: reminderTimeUTC.toISOString(),
+          currentTimeTR: currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
+          reminderTimeTR: reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+        });
+        
+        if (reminderTimeUTC <= currentTimeUTC) {
+          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}, Hatırlatma zamanı: ${reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`);
+          // Geçmiş zamanlı hatırlatma için uyarı mesajı ekle (response'a eklenecek)
+        } else {
+          // +3 saat eklenmiş reminderDateTime ile hatırlatma kaydı oluştur
+          const [reminderResult] = await db.execute(
+            `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 
+             VALUES (?, ?, 'scheduled', NOW(), NOW())`,
+            [appointmentId, reminderTimeForDB]
+          );
+          
+          if (reminderResult.insertId) {
+            console.log('✅ Hatırlatma başarıyla zamanlandı:', {
+              reminderId: reminderResult.insertId,
+              appointmentId,
+              originalReminderDateTime: reminderDateTime,
+              adjustedReminderTime: reminderTimeForDB
+            });
+          } else {
+            console.log('⚠️ Hatırlatma zamanlanamadı');
+          }
+        }
+      } catch (reminderError) {
+        console.error('❌ Hatırlatma kaydetme hatası:', reminderError);
+      }
+    } else if (reminderEnabled && !reminderDateTime) {
+      console.log('⚠️ reminderEnabled true ama reminderDateTime yok');
+    } else if (!reminderEnabled) {
+      console.log('ℹ️ Hatırlatma etkin değil, hatırlatma kaydedilmedi');
+      // Mevcut hatırlatmaları sil
+      try {
+        await db.execute(
+          'DELETE FROM appointment_reminders WHERE appointment_id = ?',
+          [appointmentId]
+        );
+        console.log('🗑️ Mevcut hatırlatmalar silindi');
+      } catch (deleteError) {
+        console.error('❌ Hatırlatma silme hatası:', deleteError);
+      }
     }
 
     console.log('=== RESPONSE GÖNDERILIYOR ===');
@@ -1361,6 +1480,14 @@ const deleteAppointment = async (req, res) => {
       console.log('Randevu silme aktivitesi kaydedildi');
     } catch (activityError) {
       console.error('Aktivite kaydetme hatası:', activityError);
+    }
+
+    // Hatırlatmaları iptal et
+    try {
+      await reminderService.cancelReminder(appointmentId);
+      console.log('Randevu hatırlatmaları iptal edildi');
+    } catch (reminderError) {
+      console.error('Hatırlatma iptal hatası:', reminderError);
     }
 
     await db.execute('DELETE FROM appointments WHERE id = ?', [appointmentId]);
@@ -1454,7 +1581,7 @@ const getAppointmentsByDateRange = async (req, res) => {
     let query, queryParams;
     
     if (canViewAll) {
-      // Tüm randevuları görebilir (COMPLETED olanlar hariç)
+      // Tüm randevuları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -1462,12 +1589,12 @@ const getAppointmentsByDateRange = async (req, res) => {
           creator.email as creator_email
         FROM appointments a
         LEFT JOIN users creator ON a.user_id = creator.id
-        WHERE a.status != 'COMPLETED' AND DATE(a.date) BETWEEN ? AND ?
+        WHERE a.status NOT IN ('COMPLETED', 'CANCELLED') AND DATE(a.date) BETWEEN ? AND ?
         ORDER BY a.date, a.start_time
       `;
       queryParams = [start, end];
     } else {
-      // Normal kullanıcı - sadece kendi randevularını veya görünür olanları görebilir (COMPLETED olanlar hariç)
+      // Normal kullanıcı - sadece kendi randevularını veya görünür olanları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -1475,7 +1602,7 @@ const getAppointmentsByDateRange = async (req, res) => {
           creator.email as creator_email
         FROM appointments a
         LEFT JOIN users creator ON a.user_id = creator.id
-        WHERE a.status != 'COMPLETED' AND (
+        WHERE a.status NOT IN ('COMPLETED', 'CANCELLED') AND (
           a.user_id = ? OR 
           a.visible_to_all = TRUE OR
           (
@@ -1975,7 +2102,7 @@ const updateReminderTime = async (req, res) => {
       reminderUnit
     );
 
-    if (success) {
+    if (success && success.success) {
       // Randevu tablosundaki hatırlatma bilgilerini de güncelle
       await db.execute(
         'UPDATE appointments SET reminder_value = ?, reminder_unit = ?, updated_at = NOW() WHERE id = ?',
@@ -1984,12 +2111,12 @@ const updateReminderTime = async (req, res) => {
 
       res.json({
         success: true,
-        message: 'Hatırlatma zamanı başarıyla güncellendi'
+        message: success.message || 'Hatırlatma zamanı başarıyla güncellendi'
       });
     } else {
       res.status(400).json({
         success: false,
-        message: 'Hatırlatma zamanlanamadı. Geçerli bir gelecek zaman seçiniz.'
+        message: success && success.message ? success.message : 'Hatırlatma zamanlanamadı. Geçerli bir gelecek zaman seçiniz.'
       });
     }
 
@@ -2073,7 +2200,8 @@ const sendStatusChangeNotification = async (
   attendeeEmail,
   attendeePhone,
   invitees,
-  visibleToUsers
+  visibleToUsers,
+  appointmentData = null
 ) => {
   try {
     console.log('Status değişikliği bildirimi gönderiliyor:', {
@@ -2141,11 +2269,47 @@ const sendStatusChangeNotification = async (
       // E-posta gönder
       for (const email of emailRecipients) {
         try {
-          await emailService.sendEmail(
-            email,
-            'Randevu Durumu Değişikliği',
-            notificationMessage,
-            `
+          let emailSubject = 'Randevu Durumu Değişikliği';
+          let emailHtml = '';
+
+          // Özel template'ler için kontrol
+          if (newStatus === 'CANCELLED' && appointmentData) {
+            emailSubject = 'Randevu İptal Edildi - SULTANGAZİ Belediyesi';
+            emailHtml = emailService.generateAppointmentCancelledEmail({
+              ...appointmentData,
+              title,
+              cancellationReason: appointmentData.cancellationReason || 'Belirtilmemiş'
+            });
+          } else if (newStatus === 'RESCHEDULED' && appointmentData) {
+            emailSubject = 'Randevu Yeniden Planlandı - SULTANGAZİ Belediyesi';
+            emailHtml = emailService.generateAppointmentRescheduledEmail({
+              ...appointmentData,
+              title,
+              rescheduleReason: appointmentData.rescheduleReason || 'Belirtilmemiş'
+            });
+          } else if (newStatus === 'CONFIRMED' && appointmentData) {
+            emailSubject = 'Randevu Onaylandı - SULTANGAZİ Belediyesi';
+            emailHtml = emailService.generateAppointmentConfirmedEmail({
+              ...appointmentData,
+              title
+            });
+          } else if (newStatus === 'COMPLETED' && appointmentData) {
+            emailSubject = 'Randevu Tamamlandı - SULTANGAZİ Belediyesi';
+            emailHtml = emailService.generateAppointmentCompletedEmail({
+              ...appointmentData,
+              title
+            });
+          } else if (appointmentData) {
+            // Genel randevu güncellemesi template'i
+            emailSubject = 'Randevu Güncellendi - SULTANGAZİ Belediyesi';
+            emailHtml = emailService.generateAppointmentUpdatedEmail({
+              ...appointmentData,
+              title,
+              updateReason: `Durum "${oldStatusText}" den "${newStatusText}" olarak değiştirildi`
+            });
+          } else {
+            // Fallback basit template
+            emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2 style="color: #3C02AA;">Randevu Durumu Değişikliği</h2>
               <p>${notificationMessage}</p>
@@ -2156,7 +2320,14 @@ const sendStatusChangeNotification = async (
               </div>
               <p style="color: #666; font-size: 12px;">Bu otomatik bir bildirimdir.</p>
             </div>
-            `
+            `;
+          }
+
+          await emailService.sendEmail(
+            email,
+            emailSubject,
+            emailHtml,
+            notificationMessage
           );
           console.log(`Status değişikliği e-posta bildirimi gönderildi: ${email}`);
         } catch (emailError) {

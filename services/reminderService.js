@@ -30,7 +30,7 @@ class ReminderService {
 
       if (!reminderValue || !reminderUnit) {
         console.log('❌ Hatırlatma değeri veya birimi eksik');
-        return false;
+        return { success: false, message: 'Hatırlatma değeri veya birimi eksik.' };
       }
 
       const [appointments] = await db.execute(
@@ -40,7 +40,7 @@ class ReminderService {
 
       if (appointments.length === 0) {
         console.log('❌ Randevu bulunamadı:', appointmentId);
-        return false;
+        return { success: false, message: 'Randevu bulunamadı.' };
       }
 
       const appointment = appointments[0];
@@ -74,9 +74,11 @@ class ReminderService {
       console.log(`⏰ Hatırlatma zamanı (+3 saat): ${reminderTimeWithTimezone.toLocaleString('tr-TR')}`);
       console.log(`⏰ Hatırlatma zamanı (DB string): ${reminderTimeForDB}`);
       
-      if (reminderTimeWithTimezone <= new Date()) {
-        console.log('⚠️ Hatırlatma zamanı geçmiş, kaydetmiyorum');
-        return false;
+      // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
+      const currentTime = new Date();
+      if (reminderTimeWithTimezone <= currentTime) {
+        console.log(`⚠️ Hatırlatma zamanı geçmiş, kaydetmiyorum. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTimeWithTimezone.toLocaleString('tr-TR')}`);
+        return { success: false, message: 'Hatırlatma zamanı geçmiş bir zamana denk geliyor. Lütfen daha uzak bir hatırlatma süresi seçin.' };
       }
 
       const [result] = await db.execute(
@@ -86,11 +88,11 @@ class ReminderService {
       );
 
       console.log(`✅ Hatırlatma kaydedildi: ID ${result.insertId}`);
-      return true;
+      return { success: true, message: 'Hatırlatma başarıyla zamanlandı.', reminderId: result.insertId };
 
     } catch (error) {
       console.error('❌ Hatırlatma zamanlama hatası:', error);
-      return false;
+      return { success: false, message: 'Hatırlatma zamanlanırken bir hata oluştu: ' + error.message };
     }
   }
 
@@ -124,12 +126,13 @@ class ReminderService {
       
       const [reminders] = await db.execute(
         `SELECT ar.*, a.title, a.date, a.start_time, a.end_time, a.location, a.description,
-                a.user_id, a.notification_email, a.notification_sms,
+                a.user_id, a.notification_email, a.notification_sms, a.status as appointment_status,
                 u.name as creator_name, u.email as creator_email, u.phone as creator_phone
          FROM appointment_reminders ar
          JOIN appointments a ON ar.appointment_id = a.id
          JOIN users u ON a.user_id = u.id
          WHERE ar.reminder_time <= NOW() AND ar.status = 'scheduled'
+         AND a.status != 'CANCELLED'
          ORDER BY ar.reminder_time ASC`,
         []
       );
@@ -141,6 +144,16 @@ class ReminderService {
       console.log(`📬 ${reminders.length} hatırlatma gönderilecek`);
       
       for (const reminder of reminders) {
+        // Çift kontrol: Randevu iptal edilmişse hatırlatmayı iptal et
+        if (reminder.appointment_status === 'CANCELLED') {
+          console.log(`⚠️ Randevu iptal edilmiş, hatırlatma iptal ediliyor: ${reminder.appointment_id}`);
+          await db.execute(
+            'UPDATE appointment_reminders SET status = "cancelled", updated_at = NOW() WHERE id = ?',
+            [reminder.id]
+          );
+          continue;
+        }
+        
         await this.processReminder(reminder);
       }
       
