@@ -77,6 +77,12 @@ const testConnection = async () => {
   }
 };
 
+// Query method'u ekle
+promisePool.query = async (sql, params) => {
+  const [rows] = await promisePool.execute(sql, params);
+  return rows;
+};
+
 // Default export olarak promisePool'u kullan
 module.exports = promisePool;
 

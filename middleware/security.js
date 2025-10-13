@@ -18,8 +18,8 @@ const loginLimiter = rateLimit({
 
 // Genel API rate limiting
 const apiLimiter = rateLimit({
-  windowMs: 5 * 1000, // 5 saniye
-  max: 60, // 5 saniyede maksimum 60 istek
+  windowMs: 60 * 1000, // 1 dakika
+  max: 1000, // 1 dakikada maksimum 300 istek
   message: {
     success: false,
     message: 'Çok fazla istek gönderildi. Lütfen daha sonra tekrar deneyin.'
@@ -31,7 +31,7 @@ const apiLimiter = rateLimit({
 // Mesajlaşma için özel rate limiting
 const messagingLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 dakika
-  max: 60, // 1 dakikada maksimum 60 mesaj
+  max: 1200, // 1 dakikada maksimum 120 mesaj
   message: {
     success: false,
     message: 'Çok fazla mesaj gönderildi. Lütfen daha yavaş yazın.'

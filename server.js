@@ -99,85 +99,10 @@ app.use(securityHeaders); // Helmet güvenlik başlıkları
 app.use(ipWhitelist); // IP whitelist kontrolü
 app.use(protectSensitiveEndpoints); // Sensitive endpoint protection
 
-// Socket.IO bağlantılarını yönet
-const connectedUsers = new Map(); // userId -> socketId mapping
-
-io.on('connection', (socket) => {
-  console.log('Yeni kullanıcı bağlandı:', socket.id);
-
-  // Kullanıcı odaya katılma
-  socket.on('join-room', async (roomId) => {
-    socket.join(roomId);
-    console.log(`Socket ${socket.id} odaya katıldı: ${roomId}`);
-    
-    // Eğer user-{id} formatındaysa, kullanıcıyı online yap
-    if (roomId.startsWith('user-')) {
-      const userId = roomId.replace('user-', '');
-      connectedUsers.set(userId, socket.id);
-      
-      try {
-        const updateQuery = 'UPDATE users SET is_online = TRUE, last_seen = CURRENT_TIMESTAMP WHERE id = ?';
-        await db.query(updateQuery, [userId]);
-        console.log(`Kullanıcı ${userId} online yapıldı`);
-        
-        // Diğer kullanıcılara online olduğunu bildir
-        socket.broadcast.emit('user-online', {
-          userId: userId
-        });
-      } catch (error) {
-        console.error('Kullanıcı online yapılırken hata:', error);
-      }
-    }
-  });
-
-  // Odadan ayrılma
-  socket.on('leave-room', (roomId) => {
-    socket.leave(roomId);
-    console.log(`Socket ${socket.id} odadan ayrıldı: ${roomId}`);
-  });
-
-  // Mesaj gönderme
-  socket.on('send-message', (data) => {
-    console.log('Mesaj gönderiliyor:', data);
-    socket.to(`room-${data.roomId}`).emit('new-message', data);
-  });
-
-  // Kullanıcı bağlantısı koptuğunda
-  socket.on('disconnect', async () => {
-    console.log('Kullanıcı bağlantısı koptu:', socket.id);
-    
-    // Hangi kullanıcının bağlantısı koptuğunu bul
-    for (const [userId, socketId] of connectedUsers.entries()) {
-      if (socketId === socket.id) {
-        connectedUsers.delete(userId);
-        
-        try {
-          const updateQuery = 'UPDATE users SET is_online = FALSE, last_seen = CURRENT_TIMESTAMP WHERE id = ?';
-          await db.query(updateQuery, [userId]);
-          console.log(`Kullanıcı ${userId} offline yapıldı`);
-          
-          // Diğer kullanıcılara offline olduğunu bildir
-          socket.broadcast.emit('user-offline', {
-            userId: userId,
-            last_seen: new Date().toISOString()
-          });
-        } catch (error) {
-          console.error('Kullanıcı offline yapılırken hata:', error);
-        }
-        break;
-      }
-    }
-  });
-
-  // Hata yakalama
-  socket.on('error', (error) => {
-    console.error('Socket hatası:', error);
-  });
-});
-
-// Socket.IO instance'ını global olarak kullanılabilir hale getir
-app.set('io', io);
-setIO(io);
+// Socket.IO bağlantı yönetimi
+setIO(io); // Socket instance'ını utils/socket.js'e kaydet
+const SocketManager = require('./Socket');
+new SocketManager(io);
 
 // Static dosya servisi (resimler için) - Güvenli CORS ile
 app.use('/uploads', (req, res, next) => {

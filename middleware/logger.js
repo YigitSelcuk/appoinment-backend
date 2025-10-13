@@ -117,6 +117,27 @@ const cleanupLogs = () => {
   });
 };
 
+// Aktivite loglama fonksiyonu
+const logActivity = async (req, action, table, recordId, description) => {
+  try {
+    const userId = req.user ? req.user.id : null;
+    const userEmail = req.user ? req.user.email : 'system';
+    
+    writeLog('INFO', `Activity: ${action} on ${table}`, {
+      userId,
+      userEmail,
+      action,
+      table,
+      recordId,
+      description,
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+  } catch (error) {
+    writeLog('ERROR', 'Failed to log activity', { error: error.message });
+  }
+};
+
 // Her gün log temizliği yap
 setInterval(cleanupLogs, 24 * 60 * 60 * 1000);
 
@@ -125,5 +146,6 @@ module.exports = {
   writeLog,
   securityLogger,
   requestLogger,
-  cleanupLogs
+  cleanupLogs,
+  logActivity
 };

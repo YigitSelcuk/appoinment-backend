@@ -1,376 +1,658 @@
-const { promisePool: db } = require('../config/database');
+const db = require('../config/database');
+const { logActivity } = require('../middleware/logger');
+const { getIO } = require('../utils/socket');
 
-/**
- * Temiz Chat Controller
- * - Sadece direkt mesajlaşma (iki kullanıcı arasında)
- * - Basit ve anlaşılır API
- * - Tek sorumluluk prensibi
- */
+// =====================================================
+// CHAT ODALARI (ROOMS) İŞLEMLERİ
+// =====================================================
 
-// Konuşma listesini getir (mesajlaştığı kullanıcılar)
-exports.getConversations = async (req, res) => {
+// Kullanıcının chat odalarını getir
+const getChatRooms = async (req, res) => {
   try {
     const userId = req.user.id;
 
     const query = `
-      SELECT DISTINCT
-        CASE 
-          WHEN dm.sender_id = ? THEN dm.receiver_id 
-          ELSE dm.sender_id 
-        END as contact_id,
-        u.name as contact_name,
-        u.email as contact_email,
-        u.avatar as contact_avatar,
-        u.department,
-        u.is_online,
-        u.last_seen,
+      SELECT 
+        cr.id as room_id,
+        cr.name as room_name,
+        cr.type as room_type,
+        cr.avatar_url as room_avatar,
+        cr.description,
+        cr.created_at as room_created_at,
         
-        -- Son mesaj
-        (SELECT message 
-         FROM direct_messages 
-         WHERE (sender_id = ? AND receiver_id = contact_id) 
-            OR (sender_id = contact_id AND receiver_id = ?)
-         ORDER BY created_at DESC 
-         LIMIT 1) as last_message,
-         
-        -- Son mesaj zamanı
-        (SELECT created_at 
-         FROM direct_messages 
-         WHERE (sender_id = ? AND receiver_id = contact_id) 
-            OR (sender_id = contact_id AND receiver_id = ?)
-         ORDER BY created_at DESC 
-         LIMIT 1) as last_message_time,
-         
-        -- Okunmamış mesaj sayısı (sadece karşı taraftan gelenler)
-        (SELECT COUNT(*) 
-         FROM direct_messages dm2 
-         WHERE dm2.sender_id = contact_id 
-           AND dm2.receiver_id = ?
-           AND dm2.id NOT IN (
-             SELECT message_id FROM message_reads WHERE user_id = ?
-           )) as unread_count,
-           
-        -- Sabitlenmiş mesaj var mı kontrol et
-        (SELECT COUNT(*) 
-         FROM direct_messages dm3 
-         WHERE ((dm3.sender_id = ? AND dm3.receiver_id = contact_id) 
-            OR (dm3.sender_id = contact_id AND dm3.receiver_id = ?))
-           AND dm3.is_pinned = 1
-           AND NOT EXISTS(
-             SELECT 1 FROM message_deletes 
-             WHERE message_id = dm3.id AND user_id = ?
-           )) as has_pinned_message
-           
-      FROM direct_messages dm
-      JOIN users u ON u.id = CASE 
-        WHEN dm.sender_id = ? THEN dm.receiver_id 
-        ELSE dm.sender_id 
-      END
-      WHERE dm.sender_id = ? OR dm.receiver_id = ?
-      ORDER BY has_pinned_message DESC, last_message_time DESC
+        -- Son mesaj bilgileri
+        cm.id as last_message_id,
+        cm.message_content as last_message,
+        cm.message_type as last_message_type,
+        cm.created_at as last_message_time,
+        sender.name as last_sender_name,
+        
+        -- Okunmamış mesaj sayısı
+        COALESCE(unread_count.count, 0) as unread_count,
+        
+        -- Direct chat için diğer kullanıcı bilgileri
+        CASE 
+          WHEN cr.type = 'direct' THEN other_user.name
+          ELSE cr.name
+        END as display_name,
+        
+        CASE 
+          WHEN cr.type = 'direct' THEN other_user.avatar
+          ELSE cr.avatar_url
+        END as display_avatar,
+        
+        CASE 
+          WHEN cr.type = 'direct' THEN other_user.is_online
+          ELSE NULL
+        END as is_online,
+        
+        -- Diğer kullanıcı detayları (direct chat için)
+        other_user.id as other_user_id,
+        other_user.name as other_user_name,
+        other_user.avatar as other_user_avatar,
+        other_user.is_online as other_user_is_online,
+        other_user.last_seen as other_user_last_seen,
+        other_user.department as other_user_department,
+        
+        -- Katılımcı ayarları
+        cp.is_pinned,
+        cp.is_muted,
+        cp.is_archived,
+        cp.custom_name,
+        cp.last_seen_at
+        
+      FROM chat_participants cp
+      JOIN chat_rooms cr ON cp.room_id = cr.id
+      
+      -- Son mesaj için LEFT JOIN
+      LEFT JOIN chat_messages cm ON cm.id = (
+        SELECT id FROM chat_messages 
+        WHERE room_id = cr.id AND is_deleted = 0 
+        ORDER BY created_at DESC LIMIT 1
+      )
+      LEFT JOIN users sender ON cm.sender_id = sender.id
+      
+      -- Okunmamış mesaj sayısı
+      LEFT JOIN (
+        SELECT 
+          cm2.room_id,
+          COUNT(*) as count
+        FROM chat_messages cm2
+        LEFT JOIN message_read_status mrs ON cm2.id = mrs.message_id AND mrs.user_id = ?
+        WHERE cm2.sender_id != ? 
+          AND cm2.is_deleted = 0
+          AND (mrs.status IS NULL OR mrs.status != 'read')
+        GROUP BY cm2.room_id
+      ) unread_count ON unread_count.room_id = cr.id
+      
+      -- Direct chat için diğer kullanıcı bilgileri
+      LEFT JOIN (
+        SELECT 
+          cp2.room_id,
+          u.id,
+          u.name,
+          u.avatar,
+          u.is_online,
+          u.last_seen,
+          u.department
+        FROM chat_participants cp2
+        JOIN users u ON cp2.user_id = u.id
+        WHERE cp2.user_id != ? AND cp2.left_at IS NULL
+      ) other_user ON other_user.room_id = cr.id AND cr.type = 'direct'
+      
+      WHERE cp.user_id = ? 
+        AND cp.left_at IS NULL
+        AND (cp.deleted_at IS NULL OR cp.reopened_at IS NOT NULL)
+        AND cr.is_active = 1
+      
+      ORDER BY 
+        cp.is_pinned DESC,
+        COALESCE(cm.created_at, cr.created_at) DESC
     `;
 
-    const [conversations] = await db.query(query, [
-      userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId
-    ]);
-
-    // Avatar URL'lerini tam path olarak düzenle
-    const conversationsWithAvatars = conversations.map(conversation => ({
-      ...conversation,
-      contact_avatar: conversation.contact_avatar && !conversation.contact_avatar.startsWith('http')
-        ? `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/avatars/${conversation.contact_avatar}`
-        : conversation.contact_avatar
-    }));
-
-    console.log(`Kullanıcı ${userId} için ${conversations.length} konuşma bulundu`);
+    const rawRooms = await db.query(query, [userId, userId, userId, userId]);
+    
+    // Response'u organize et
+    const rooms = rawRooms.map(room => {
+      const result = {
+        room_id: room.room_id,
+        room_name: room.room_name,
+        room_type: room.room_type,
+        room_avatar: room.room_avatar,
+        description: room.description,
+        room_created_at: room.room_created_at,
+        last_message_id: room.last_message_id,
+        last_message: room.last_message,
+        last_message_type: room.last_message_type,
+        last_message_time: room.last_message_time,
+        last_sender_name: room.last_sender_name,
+        unread_count: room.unread_count,
+        display_name: room.display_name,
+        display_avatar: room.display_avatar,
+        is_online: room.is_online,
+        is_pinned: room.is_pinned,
+        is_muted: room.is_muted,
+        is_archived: room.is_archived,
+        custom_name: room.custom_name,
+        last_seen_at: room.last_seen_at
+      };
+      
+      // Direct chat için participants bilgisini ekle
+      if (room.room_type === 'direct' && room.other_user_id) {
+        result.participants = [
+          {
+            user_id: userId,
+            user_name: req.user.name,
+            avatar: req.user.avatar,
+            is_online: req.user.is_online,
+            last_seen: req.user.last_seen,
+            department: req.user.department
+          },
+          {
+            user_id: room.other_user_id,
+            user_name: room.other_user_name,
+            avatar: room.other_user_avatar,
+            is_online: room.other_user_is_online,
+            last_seen: room.other_user_last_seen,
+            department: room.other_user_department
+          }
+        ];
+      }
+      
+      return result;
+    });
 
     res.json({
       success: true,
-      data: conversationsWithAvatars
+      data: rooms
     });
 
   } catch (error) {
-    console.error('Konuşmaları getirme hatası:', error);
+    console.error('Chat odalarını getirirken hata:', error);
     res.status(500).json({
       success: false,
-      message: 'Konuşmalar getirilemedi',
+      message: 'Chat odaları getirilemedi',
       error: error.message
     });
   }
 };
 
-// Belirli bir kullanıcıyla mesajları getir
-exports.getMessages = async (req, res) => {
+// Yeni direct chat oluştur veya mevcut olanı getir
+const createOrGetDirectChat = async (req, res) => {
   try {
     const userId = req.user.id;
-    const contactId = parseInt(req.params.contactId);
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const markAsRead = req.query.markAsRead === 'true';
-    const offset = (page - 1) * limit;
+    const { otherUserId } = req.body;
 
-    // Kendi kendine mesaj engeli
-    if (userId === contactId) {
+    if (!otherUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Diğer kullanıcı ID gerekli'
+      });
+    }
+
+    if (userId === otherUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Kendinizle chat oluşturamazsınız'
+      });
+    }
+
+    // Mevcut direct chat var mı kontrol et
+    const existingChatQuery = `
+      SELECT cr.id as room_id
+      FROM chat_rooms cr
+      WHERE cr.type = 'direct'
+        AND cr.is_active = 1
+        AND cr.id IN (
+          SELECT cp1.room_id
+          FROM chat_participants cp1
+          WHERE cp1.user_id = ? AND cp1.left_at IS NULL
+        )
+        AND cr.id IN (
+          SELECT cp2.room_id
+          FROM chat_participants cp2
+          WHERE cp2.user_id = ? AND cp2.left_at IS NULL
+        )
+    `;
+
+    const existingChat = await db.query(existingChatQuery, [userId, otherUserId]);
+    console.log('Existing chat query result:', existingChat);
+    console.log('Query parameters - userId:', userId, 'otherUserId:', otherUserId);
+
+    if (existingChat.length > 0) {
+      console.log('Mevcut chat bulundu, room_id:', existingChat[0].room_id);
+      console.log('Full existing chat object:', existingChat[0]);
       return res.json({
         success: true,
-        data: []
+        data: { room_id: existingChat[0].room_id },
+        message: 'Mevcut chat bulundu'
       });
     }
 
-    // Kontak kullanıcısının varlığını kontrol et
-    const [contactCheck] = await db.query('SELECT id, name FROM users WHERE id = ?', [contactId]);
-    if (contactCheck.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Kullanıcı bulunamadı'
-      });
-    }
-
-    console.log(`Mesajlar getiriliyor: ${userId} <-> ${contactId}, markAsRead: ${markAsRead}`);
-
-    // message_deletes tablosunun varlığını kontrol et
-    let messageDeletesExists = false;
+    // Yeni direct chat oluştur
+    const connection = await db.getConnection();
+    
     try {
-      console.log('🔍 message_deletes tablosu kontrol ediliyor...');
-      await db.query('SELECT 1 FROM message_deletes LIMIT 1');
-      messageDeletesExists = true;
-      console.log('✅ message_deletes tablosu mevcut');
+      await connection.beginTransaction();
+
+      // Chat odası oluştur
+      const [roomResult] = await connection.execute(
+        'INSERT INTO chat_rooms (type, created_by) VALUES (?, ?)',
+        ['direct', userId]
+      );
+      const roomId = roomResult.insertId;
+
+      // Katılımcıları ekle
+      await connection.execute(
+        'INSERT INTO chat_participants (room_id, user_id, role) VALUES (?, ?, ?), (?, ?, ?)',
+        [roomId, userId, 'admin', roomId, otherUserId, 'member']
+      );
+
+      await connection.commit();
+      connection.release();
+
+      // Aktivite logla
+      await logActivity(req, 'CREATE', 'chat_rooms', roomId, `Yeni direct chat oluşturuldu`);
+
+      // Socket.IO ile chat listesi güncellemesini bildir
+      const io = getIO();
+      if (io) {
+        // Her iki kullanıcıya da chat listesi güncellemesini bildir
+        io.to(`user-${userId}`).emit('chat-list-update', { 
+          type: 'new_chat', 
+          room_id: roomId,
+          participants: [userId, otherUserId]
+        });
+        io.to(`user-${otherUserId}`).emit('chat-list-update', { 
+          type: 'new_chat', 
+          room_id: roomId,
+          participants: [userId, otherUserId]
+        });
+        console.log('Chat listesi güncelleme event\'i gönderildi:', roomId);
+      }
+
+      console.log('Yeni chat oluşturuldu, room_id:', roomId);
+      res.json({
+        success: true,
+        data: { room_id: roomId },
+        message: 'Yeni chat oluşturuldu'
+      });
+
     } catch (error) {
-      console.log('❌ message_deletes tablosu kontrol hatası:', error.code, error.message);
-      if (error.code !== 'ER_NO_SUCH_TABLE') {
-        console.error('🚨 Beklenmeyen veritabanı hatası:', error);
-        throw error;
-      }
-      console.log('⚠️ message_deletes tablosu yok, basit sorgu kullanılacak');
+      await connection.rollback();
+      connection.release();
+      throw error;
     }
-
-    // İki kullanıcı arasındaki mesajları getir
-    let query, queryParams;
-    
-    if (messageDeletesExists) {
-      console.log('📝 message_deletes tablosu ile sorgu hazırlanıyor');
-      query = `
-        SELECT 
-          dm.id,
-          dm.message,
-          dm.message_type,
-          dm.file_url,
-          dm.file_name,
-          dm.file_size,
-          dm.is_pinned,
-          dm.sender_id,
-          dm.receiver_id,
-          dm.created_at,
-          u.name as sender_name,
-          u.avatar as sender_avatar,
-          EXISTS(
-            SELECT 1 FROM message_reads 
-            WHERE message_id = dm.id AND user_id = ?
-          ) as is_read_by_me
-        FROM direct_messages dm
-        JOIN users u ON u.id = dm.sender_id
-        WHERE ((dm.sender_id = ? AND dm.receiver_id = ?)
-           OR (dm.sender_id = ? AND dm.receiver_id = ?))
-          AND NOT EXISTS(
-            SELECT 1 FROM message_deletes 
-            WHERE message_id = dm.id AND user_id = ?
-          )
-        ORDER BY dm.is_pinned DESC, dm.created_at ASC
-        LIMIT ? OFFSET ?
-      `;
-      queryParams = [userId, userId, contactId, contactId, userId, userId, limit, offset];
-      console.log('🔧 Query parametreleri:', queryParams);
-    } else {
-      console.log('📝 Basit sorgu hazırlanıyor (message_deletes yok)');
-      query = `
-        SELECT 
-          dm.id,
-          dm.message,
-          dm.message_type,
-          dm.file_url,
-          dm.file_name,
-          dm.file_size,
-          COALESCE(dm.is_pinned, 0) as is_pinned,
-          dm.sender_id,
-          dm.receiver_id,
-          dm.created_at,
-          u.name as sender_name,
-          u.avatar as sender_avatar,
-          EXISTS(
-            SELECT 1 FROM message_reads 
-            WHERE message_id = dm.id AND user_id = ?
-          ) as is_read_by_me
-        FROM direct_messages dm
-        JOIN users u ON u.id = dm.sender_id
-        WHERE (dm.sender_id = ? AND dm.receiver_id = ?)
-           OR (dm.sender_id = ? AND dm.receiver_id = ?)
-        ORDER BY COALESCE(dm.is_pinned, 0) DESC, dm.created_at ASC
-        LIMIT ? OFFSET ?
-      `;
-      queryParams = [userId, userId, contactId, contactId, userId, limit, offset];
-      console.log('🔧 Query parametreleri:', queryParams);
-    }
-
-    console.log('🚀 SQL sorgusu çalıştırılıyor...');
-    console.log('📋 Query:', query.substring(0, 200) + '...');
-    
-    const [messages] = await db.query(query, queryParams);
-    
-    console.log('✅ SQL sorgusu başarılı');
-
-    console.log(`${messages.length} mesaj bulundu`);
-
-          // Eğer markAsRead true ise, karşı taraftan gelen okunmamış mesajları işaretle
-      if (markAsRead && messages.length > 0) {
-        const unreadMessages = messages.filter(msg => 
-          msg.sender_id === contactId && !msg.is_read_by_me
-        );
-
-        if (unreadMessages.length > 0) {
-          const messageIds = unreadMessages.map(msg => msg.id);
-          const placeholders = messageIds.map(() => '(?, ?)').join(', ');
-          const params = messageIds.flatMap(id => [id, userId]);
-
-          await db.query(
-            `INSERT IGNORE INTO message_reads (message_id, user_id) VALUES ${placeholders}`,
-            params
-          );
-
-          console.log(`${unreadMessages.length} mesaj okundu olarak işaretlendi`);
-          
-          // Socket.IO ile okundu durumu bildir
-          const io = req.app.get('io');
-          if (io) {
-            console.log(`Socket.IO ile okundu durumu bildiriliyor: ${contactId} -> ${userId}`);
-            
-            // Mesajı gönderen kişiye okundu bilgisi gönder
-            io.to(`user-${contactId}`).emit('messages-read', {
-              readerId: userId,
-              messageIds: messageIds
-            });
-            
-            // Konuşma listesi güncellemesi
-            io.to(`user-${userId}`).emit('chat-list-update');
-            io.to(`user-${contactId}`).emit('chat-list-update');
-          }
-        }
-      }
-
-    // Avatar URL'lerini tam path olarak düzenle
-    const messagesWithAvatars = messages.map(message => ({
-      ...message,
-      sender_avatar: message.sender_avatar && !message.sender_avatar.startsWith('http')
-        ? `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/avatars/${message.sender_avatar}`
-        : message.sender_avatar
-    }));
-
-    res.json({
-      success: true,
-      data: messagesWithAvatars
-    });
 
   } catch (error) {
-    console.error('🚨 Mesajları getirme hatası:', error);
-    console.error('🔍 Hata detayları:');
-    console.error('   - Code:', error.code);
-    console.error('   - Message:', error.message);
-    console.error('   - SQL State:', error.sqlState);
-    console.error('   - SQL:', error.sql?.substring(0, 500) + '...');
-    
+    console.error('Direct chat oluştururken hata:', error);
     res.status(500).json({
       success: false,
-      message: 'Mesajlar getirilemedi',
-      error: error.message,
-      errorCode: error.code
+      message: 'Chat oluşturulamadı',
+      error: error.message
     });
   }
 };
 
-// Mesaj gönder
-exports.sendMessage = async (req, res) => {
+// Grup chat oluştur
+const createGroupChat = async (req, res) => {
   try {
     const userId = req.user.id;
-    const contactId = parseInt(req.params.contactId);
-    const { message, messageType = 'text' } = req.body;
+    const { name, description, participantIds, avatarUrl } = req.body;
 
-    // Validation
-    if (!message || !message.trim()) {
+    if (!name || !participantIds || participantIds.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Mesaj içeriği gereklidir'
+        message: 'Grup adı ve katılımcılar gerekli'
       });
     }
 
-    // Kendi kendine mesaj engeli
-    if (userId === contactId) {
-      return res.status(400).json({
+    const connection = await db.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+
+      // Grup chat odası oluştur
+      const [roomResult] = await connection.execute(
+        'INSERT INTO chat_rooms (name, type, description, avatar_url, created_by) VALUES (?, ?, ?, ?, ?)',
+        [name, 'group', description, avatarUrl, userId]
+      );
+      const roomId = roomResult.insertId;
+
+      // Oluşturan kullanıcıyı admin olarak ekle
+      await connection.execute(
+        'INSERT INTO chat_participants (room_id, user_id, role) VALUES (?, ?, ?)',
+        [roomId, userId, 'admin']
+      );
+
+      // Diğer katılımcıları ekle
+      for (const participantId of participantIds) {
+        if (participantId !== userId) {
+          await connection.execute(
+            'INSERT INTO chat_participants (room_id, user_id, role) VALUES (?, ?, ?)',
+            [roomId, participantId, 'member']
+          );
+        }
+      }
+
+      await connection.commit();
+      connection.release();
+
+      // Aktivite logla
+      await logActivity(req, 'CREATE', 'chat_rooms', roomId, `Yeni grup chat oluşturuldu: ${name}`);
+
+      // Socket.IO ile chat listesi güncellemesini bildir
+      const io = getIO();
+      if (io) {
+        // Tüm katılımcılara chat listesi güncellemesini bildir
+        const allParticipants = [userId, ...participantIds.filter(id => id !== userId)];
+        allParticipants.forEach(participantId => {
+          io.to(`user-${participantId}`).emit('chat-list-update', { 
+            type: 'new_group_chat', 
+            room_id: roomId,
+            participants: allParticipants,
+            name: name
+          });
+        });
+        console.log('Grup chat listesi güncelleme event\'i gönderildi:', roomId);
+      }
+
+      res.json({
+        success: true,
+        data: { room_id: roomId },
+        message: 'Grup chat oluşturuldu'
+      });
+
+    } catch (error) {
+      await connection.rollback();
+      connection.release();
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('Grup chat oluştururken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Grup chat oluşturulamadı',
+      error: error.message
+    });
+  }
+};
+
+// =====================================================
+// MESAJ İŞLEMLERİ
+// =====================================================
+
+// Chat mesajlarını getir
+const getChatMessages = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { roomId } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+    // Sayısal değerlere dönüştür ve sınırlandır
+    const pageNum = Number(page) > 0 ? Number(page) : 1;
+    const limitNum = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.min(200, Number(limit)) : 50;
+    const offsetNum = (pageNum - 1) * limitNum;
+
+    // Kullanıcının bu odaya erişimi var mı kontrol et
+    const accessCheck = await db.query(
+      'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL AND (deleted_at IS NULL OR reopened_at IS NOT NULL)',
+      [roomId, userId]
+    );
+
+    if (accessCheck.length === 0) {
+      return res.status(403).json({
         success: false,
-        message: 'Kendinize mesaj gönderemezsiniz'
+        message: 'Bu chat odasına erişim yetkiniz yok'
       });
     }
 
-    // Kontak kullanıcısının varlığını kontrol et
-    const [contactCheck] = await db.query('SELECT id, name FROM users WHERE id = ?', [contactId]);
-    if (contactCheck.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Alıcı kullanıcı bulunamadı'
-      });
-    }
+    // Kullanıcının deleted_at ve reopened_at tarihlerini al
+    const userParticipant = await db.query(
+      'SELECT deleted_at, reopened_at FROM chat_participants WHERE room_id = ? AND user_id = ?',
+      [roomId, userId]
+    );
 
-    console.log(`Mesaj gönderiliyor: ${userId} -> ${contactId}`);
+    const userDeletedAt = userParticipant[0]?.deleted_at;
+    const userReopenedAt = userParticipant[0]?.reopened_at;
 
-    // Mesajı kaydet
-    const insertQuery = `
-      INSERT INTO direct_messages (sender_id, receiver_id, message, message_type, created_at)
-      VALUES (?, ?, ?, ?, NOW())
-    `;
-
-    const [result] = await db.query(insertQuery, [userId, contactId, message.trim(), messageType]);
-
-    // Kaydedilen mesajı geri getir
-    const selectQuery = `
+    // Basitleştirilmiş query - önce temel mesajları alalım
+    let query = `
       SELECT 
-        dm.id,
-        dm.message,
-        dm.message_type,
-        dm.file_url,
-        dm.file_name,
-        dm.file_size,
-        dm.sender_id,
-        dm.receiver_id,
-        dm.created_at,
-        u.name as sender_name,
-        u.avatar as sender_avatar
-      FROM direct_messages dm
-      JOIN users u ON u.id = dm.sender_id
-      WHERE dm.id = ?
-    `;
-
-    const [messageData] = await db.query(selectQuery, [result.insertId]);
-    const savedMessage = messageData[0];
-
-    // Socket.IO ile mesajı yayınla
-    const io = req.app.get('io');
-    if (io) {
-      console.log(`Socket.IO ile mesaj gönderiliyor: ${userId} -> ${contactId}`);
+        cm.id,
+        cm.message_content as content,
+        cm.message_type,
+        cm.file_url,
+        cm.file_name,
+        cm.file_size,
+        cm.file_mime_type as file_type,
+        cm.thumbnail_url,
+        cm.duration,
+        cm.metadata,
+        cm.is_edited,
+        cm.is_pinned,
+        cm.reply_to_message_id,
+        cm.created_at,
+        cm.updated_at,
+        cm.edited_at,
+        
+        -- Gönderen bilgileri
+        sender.id as sender_id,
+        sender.name as sender_name,
+        sender.avatar as sender_avatar,
+        
+        -- Yanıtlanan mesaj bilgileri
+        reply_msg.message_content as reply_content,
+        reply_msg.message_type as reply_type,
+        reply_sender.name as reply_sender_name,
+        
+        -- Okunma durumu
+        CASE 
+          WHEN cm.sender_id = ? THEN 'sent'
+          ELSE 'delivered'
+        END as read_status
+        
+      FROM chat_messages cm
+      JOIN users sender ON cm.sender_id = sender.id
+      LEFT JOIN chat_messages reply_msg ON cm.reply_to_message_id = reply_msg.id
+      LEFT JOIN users reply_sender ON reply_msg.sender_id = reply_sender.id
       
-      // Gönderene ve alıcıya mesajı gönder
-      io.to(`user-${userId}`).emit('new-message', savedMessage);
-      io.to(`user-${contactId}`).emit('new-message', savedMessage);
-      
-      // Konuşma listesi güncellemesi
-      io.to(`user-${userId}`).emit('chat-list-update');
-      io.to(`user-${contactId}`).emit('chat-list-update');
+      WHERE cm.room_id = ? 
+        AND cm.is_deleted = 0`;
+
+    // Mesaj filtreleme mantığı
+    let filterDate = null;
+    if (userDeletedAt) {
+      // Eğer chat yeniden açıldıysa (reopened_at varsa), o tarihten sonraki mesajları getir
+      if (userReopenedAt) {
+        filterDate = userReopenedAt;
+      } else {
+        // Chat silinmiş ama henüz yeniden açılmamış, hiç mesaj gösterme
+        query += ` AND 1 = 0`; // Hiçbir mesaj getirme
+      }
     }
 
-    res.status(201).json({
+    if (filterDate) {
+      query += ` AND cm.created_at >= ?`;
+    }
+
+    query += `
+      ORDER BY cm.created_at DESC
+      LIMIT ${limitNum} OFFSET ${offsetNum}
+    `;
+
+    const queryParams = [Number(userId), Number(roomId)];
+    if (filterDate) {
+      queryParams.push(filterDate);
+    }
+
+    const messages = await db.query(query, queryParams);
+
+    // Mesajları düzenle
+    const parsedMessages = messages.map(msg => {
+      let parsedMetadata = null;
+      if (msg.metadata) {
+        try {
+          // Eğer string ise parse et, değilse olduğu gibi kullan
+          parsedMetadata = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
+        } catch (error) {
+          console.error('Metadata parse hatası:', error);
+          parsedMetadata = null;
+        }
+      }
+      
+      return {
+        ...msg,
+        reactions: {}, // Şimdilik boş, sonra ekleyebiliriz
+        metadata: parsedMetadata
+      };
+    });
+
+    res.json({
       success: true,
-      data: savedMessage
+      data: parsedMessages.reverse(), // Eski mesajlar önce gelsin
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        hasMore: messages.length === parseInt(limit)
+      }
     });
 
   } catch (error) {
-    console.error('Mesaj gönderme hatası:', error);
+    console.error('Mesajları getirirken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Mesajlar getirilemedi',
+      error: error.message
+    });
+  }
+};
+
+// Yeni mesaj gönder
+const sendMessage = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { roomId } = req.params;
+    const { 
+      messageContent, 
+      messageType = 'text', 
+      replyToMessageId,
+      metadata 
+    } = req.body;
+
+    // Kullanıcının bu odaya erişimi var mı kontrol et
+    const accessCheck = await db.query(
+      'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
+      [roomId, userId]
+    );
+
+    if (accessCheck.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bu chat odasına mesaj gönderme yetkiniz yok'
+      });
+    }
+
+    if (!messageContent && messageType === 'text') {
+      return res.status(400).json({
+        success: false,
+        message: 'Mesaj içeriği gerekli'
+      });
+    }
+
+    // Oda katılımcılarını getir (gönderen hariç)
+    const participants = await db.query(
+      `SELECT user_id FROM chat_participants 
+       WHERE room_id = ? AND user_id != ? AND left_at IS NULL`,
+      [roomId, userId]
+    );
+
+    // Alıcıların chat'ini yeniden aç (deleted_at varsa reopened_at güncelle) - MESAJ KAYDEDİLMEDEN ÖNCE
+    for (const participant of participants) {
+      await db.query(
+        'UPDATE chat_participants SET reopened_at = CURRENT_TIMESTAMP WHERE room_id = ? AND user_id = ? AND deleted_at IS NOT NULL',
+        [roomId, participant.user_id]
+      );
+    }
+
+    // Mesajı veritabanına kaydet
+    const result = await db.query(
+      `INSERT INTO chat_messages 
+       (room_id, sender_id, message_content, message_type, reply_to_message_id, metadata) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [roomId, userId, messageContent, messageType, replyToMessageId, JSON.stringify(metadata)]
+    );
+
+    const messageId = result.insertId;
+
+    // Her katılımcı için mesaj durumu oluştur
+    for (const participant of participants) {
+      await db.query(
+        'INSERT INTO message_read_status (message_id, user_id, status) VALUES (?, ?, ?)',
+        [messageId, participant.user_id, 'delivered']
+      );
+    }
+
+    // Gönderilen mesajı detaylarıyla birlikte getir
+    const messageQuery = `
+      SELECT 
+        cm.*,
+        sender.name as sender_name,
+        sender.avatar as sender_avatar
+      FROM chat_messages cm
+      JOIN users sender ON cm.sender_id = sender.id
+      WHERE cm.id = ?
+    `;
+
+    const [newMessage] = await db.query(messageQuery, [messageId]);
+
+    // Socket ile real-time mesaj gönder
+    const io = getIO();
+    console.log('Socket emit başlıyor. Katılımcılar:', participants);
+    console.log('Gönderen userId:', userId);
+    console.log('Gönderilecek mesaj:', newMessage);
+    
+    // Frontend'in beklediği formatta mesaj objesi oluştur
+    const messageForSocket = {
+      id: newMessage.id,
+      room_id: parseInt(roomId),
+      sender_id: newMessage.sender_id,
+      content: newMessage.message_content, // message_content -> content
+      message_type: newMessage.message_type,
+      created_at: newMessage.created_at,
+      sender_name: newMessage.sender_name,
+      sender_avatar: newMessage.sender_avatar
+    };
+
+    // Oda katılımcılarına mesajı gönder
+    for (const participant of participants) {
+      console.log(`Socket emit: user-${participant.user_id} için new-message gönderiliyor`);
+      io.to(`user-${participant.user_id}`).emit('new-message', messageForSocket);
+    }
+    
+    // Gönderene de mesajı gönder (diğer cihazları için)
+    console.log(`Socket emit: user-${userId} için new-message gönderiliyor`);
+    io.to(`user-${userId}`).emit('new-message', messageForSocket);
+
+    // Chat listesi güncellemesi için event gönder (okunmamış mesaj sayıları için)
+    for (const participant of participants) {
+      io.to(`user-${participant.user_id}`).emit('chat-list-update', { 
+        type: 'new_message', 
+        room_id: parseInt(roomId),
+        message_id: messageId,
+        sender_id: userId
+      });
+    }
+    console.log('Chat listesi güncelleme event\'i gönderildi (yeni mesaj):', roomId);
+
+    res.json({
+      success: true,
+      data: newMessage,
+      message: 'Mesaj gönderildi'
+    });
+
+  } catch (error) {
+    console.error('Mesaj gönderirken hata:', error);
     res.status(500).json({
       success: false,
       message: 'Mesaj gönderilemedi',
@@ -380,72 +662,57 @@ exports.sendMessage = async (req, res) => {
 };
 
 // Mesajları okundu olarak işaretle
-exports.markAsRead = async (req, res) => {
+const markMessagesAsRead = async (req, res) => {
   try {
     const userId = req.user.id;
-    const contactId = parseInt(req.params.contactId);
+    const { roomId } = req.params;
+    const { messageIds } = req.body; // Belirli mesajlar için, yoksa tüm okunmamışlar
 
-    // Kendi kendine mesaj engeli
-    if (userId === contactId) {
-      return res.json({
-        success: true,
-        message: 'Kendi mesajlarınızı okumanıza gerek yok',
-        markedCount: 0
+    // Kullanıcının bu odaya erişimi var mı kontrol et
+    const accessCheck = await db.query(
+      'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
+      [roomId, userId]
+    );
+
+    if (accessCheck.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bu chat odasına erişim yetkiniz yok'
       });
     }
 
-    console.log(`Mesajlar okundu işaretleniyor: ${contactId} -> ${userId}`);
+    let query, params;
 
-    // Karşı taraftan gelen okunmamış mesajları bul
-    const unreadQuery = `
-      SELECT dm.id
-      FROM direct_messages dm
-      WHERE dm.sender_id = ? 
-        AND dm.receiver_id = ?
-        AND dm.id NOT IN (
-          SELECT message_id FROM message_reads WHERE user_id = ?
-        )
-    `;
-
-    const [unreadMessages] = await db.query(unreadQuery, [contactId, userId, userId]);
-
-    if (unreadMessages.length > 0) {
-      const messageIds = unreadMessages.map(msg => msg.id);
-      const placeholders = messageIds.map(() => '(?, ?)').join(', ');
-      const params = messageIds.flatMap(id => [id, userId]);
-
-      await db.query(
-        `INSERT IGNORE INTO message_reads (message_id, user_id) VALUES ${placeholders}`,
-        params
-      );
-
-      console.log(`${messageIds.length} mesaj okundu olarak işaretlendi`);
+    if (messageIds && messageIds.length > 0) {
+      // Belirli mesajları okundu işaretle
+      const placeholders = messageIds.map(() => '?').join(',');
+      query = `
+        UPDATE message_read_status 
+        SET status = 'read', read_at = NOW() 
+        WHERE user_id = ? AND message_id IN (${placeholders}) AND status != 'read'
+      `;
+      params = [userId, ...messageIds];
+    } else {
+      // Odadaki tüm okunmamış mesajları okundu işaretle
+      query = `
+        UPDATE message_read_status mrs
+        JOIN chat_messages cm ON mrs.message_id = cm.id
+        SET mrs.status = 'read', mrs.read_at = NOW()
+        WHERE mrs.user_id = ? AND cm.room_id = ? AND mrs.status != 'read'
+      `;
+      params = [userId, roomId];
     }
 
-    // Socket.IO ile okundu durumu bildir
-    const io = req.app.get('io');
-    if (io && unreadMessages.length > 0) {
-      console.log(`${unreadMessages.length} mesaj okundu olarak işaretlendi - Socket.IO ile bildiriliyor`);
-      
-      // Mesajı gönderen kişiye okundu bilgisi gönder
-      io.to(`user-${contactId}`).emit('messages-read', {
-        readerId: userId,
-        messageIds: unreadMessages.map(msg => msg.id)
-      });
-      
-      // Konuşma listesi güncellemesi
-      io.to(`user-${userId}`).emit('chat-list-update');
-      io.to(`user-${contactId}`).emit('chat-list-update');
-    }
+    const result = await db.query(query, params);
 
     res.json({
       success: true,
-      message: 'Mesajlar okundu olarak işaretlendi',
-      markedCount: unreadMessages.length
+      data: { updatedCount: result.affectedRows },
+      message: 'Mesajlar okundu olarak işaretlendi'
     });
 
   } catch (error) {
-    console.error('Mesaj okundu işaretleme hatası:', error);
+    console.error('Mesajları okundu işaretlerken hata:', error);
     res.status(500).json({
       success: false,
       message: 'Mesajlar okundu işaretlenemedi',
@@ -454,210 +721,67 @@ exports.markAsRead = async (req, res) => {
   }
 };
 
-// Tüm kullanıcıları getir (yeni chat başlatmak için)
-exports.getAllUsers = async (req, res) => {
+// Mesaj düzenle
+const editMessage = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { messageId } = req.params;
+    const { messageContent } = req.body;
 
-    const query = `
-      SELECT 
-        id,
-        name,
-        email,
-        avatar,
-        department,
-        is_online,
-        last_seen
-      FROM users 
-      WHERE id != ?
-      ORDER BY is_online DESC, name ASC
-    `;
+    if (!messageContent) {
+      return res.status(400).json({
+        success: false,
+        message: 'Yeni mesaj içeriği gerekli'
+      });
+    }
 
-    const [users] = await db.query(query, [userId]);
+    // Mesajın sahibi mi kontrol et
+    const messageCheck = await db.query(
+      'SELECT id FROM chat_messages WHERE id = ? AND sender_id = ? AND is_deleted = 0',
+      [messageId, userId]
+    );
 
-    console.log(`${users.length} kullanıcı listelendi (kendisi hariç)`);
+    if (messageCheck.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bu mesajı düzenleme yetkiniz yok'
+      });
+    }
+
+    // Mesajı güncelle
+    await db.query(
+      'UPDATE chat_messages SET message_content = ?, is_edited = 1, edited_at = NOW() WHERE id = ?',
+      [messageContent, messageId]
+    );
 
     res.json({
       success: true,
-      data: users
+      message: 'Mesaj düzenlendi'
     });
 
   } catch (error) {
-    console.error('Kullanıcıları getirme hatası:', error);
+    console.error('Mesaj düzenlerken hata:', error);
     res.status(500).json({
       success: false,
-      message: 'Kullanıcılar getirilemedi',
+      message: 'Mesaj düzenlenemedi',
       error: error.message
     });
   }
 };
 
-// Kullanıcı online durumunu güncelle
-exports.updateOnlineStatus = async (req, res) => {
+// Mesaj sil
+const deleteMessage = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { isOnline } = req.body;
+    const { messageId } = req.params;
+    const { deleteType = 'for_me' } = req.body; // 'for_me' veya 'for_everyone'
 
-    const query = `
-      UPDATE users 
-      SET is_online = ?, last_seen = CURRENT_TIMESTAMP 
-      WHERE id = ?
-    `;
-
-    await db.query(query, [isOnline, userId]);
-
-    // Socket.IO ile durumu bildir
-    const io = req.app.get('io');
-    if (io) {
-      const eventName = isOnline ? 'user-online' : 'user-offline';
-      io.emit(eventName, {
-        userId: userId,
-        last_seen: new Date().toISOString()
-      });
-    }
-
-    res.json({
-      success: true,
-      message: `Kullanıcı ${isOnline ? 'online' : 'offline'} yapıldı`
-    });
-
-  } catch (error) {
-    console.error('Online durum güncelleme hatası:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Online durumu güncellenemedi',
-      error: error.message
-    });
-  }
-};
-
-// Dosya mesajı gönder
-exports.sendFileMessage = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const contactId = parseInt(req.params.contactId);
-    const { message } = req.body;
-    const file = req.file;
-
-    // Validation
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        message: 'Dosya gereklidir'
-      });
-    }
-
-    // Kendi kendine mesaj engeli
-    if (userId === contactId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Kendinize dosya gönderemezsiniz'
-      });
-    }
-
-    // Kontak kullanıcısının varlığını kontrol et
-    const [contactCheck] = await db.query('SELECT id, name FROM users WHERE id = ?', [contactId]);
-    if (contactCheck.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Alıcı kullanıcı bulunamadı'
-      });
-    }
-
-    console.log(`Dosya mesajı gönderiliyor: ${userId} -> ${contactId}, File: ${file.filename}`);
-
-    // Dosya URL'ini oluştur
-    const fileUrl = `/uploads/chat/${file.filename}`;
-    
-    // Mesaj içeriği oluştur
-    const messageContent = message || file.originalname;
-    
-    // Dosya tipini belirle
-    let messageType = 'file';
-    if (file.mimetype.startsWith('image/')) {
-      messageType = 'image';
-    }
-
-    // Mesajı kaydet
-    const insertQuery = `
-      INSERT INTO direct_messages (sender_id, receiver_id, message, message_type, file_url, file_name, file_size, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-    `;
-
-    const [result] = await db.query(insertQuery, [
-      userId, 
-      contactId, 
-      messageContent, 
-      messageType, 
-      fileUrl, 
-      file.originalname, 
-      file.size
-    ]);
-
-    // Kaydedilen mesajı geri getir
-    const selectQuery = `
-      SELECT 
-        dm.id,
-        dm.message,
-        dm.message_type,
-        dm.file_url,
-        dm.file_name,
-        dm.file_size,
-        dm.sender_id,
-        dm.receiver_id,
-        dm.created_at,
-        u.name as sender_name,
-        u.avatar as sender_avatar
-      FROM direct_messages dm
-      JOIN users u ON u.id = dm.sender_id
-      WHERE dm.id = ?
-    `;
-
-    const [messageData] = await db.query(selectQuery, [result.insertId]);
-    const savedMessage = messageData[0];
-
-    // Socket.IO ile mesajı yayınla
-    const io = req.app.get('io');
-    if (io) {
-      console.log(`Socket.IO ile dosya mesajı gönderiliyor: ${userId} -> ${contactId}`);
-      
-      // Gönderene ve alıcıya mesajı gönder
-      io.to(`user-${userId}`).emit('new-message', savedMessage);
-      io.to(`user-${contactId}`).emit('new-message', savedMessage);
-      
-      // Konuşma listesi güncellemesi
-      io.to(`user-${userId}`).emit('chat-list-update');
-      io.to(`user-${contactId}`).emit('chat-list-update');
-    }
-
-    res.status(201).json({
-      success: true,
-      data: savedMessage
-    });
-
-  } catch (error) {
-    console.error('Dosya mesajı gönderme hatası:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Dosya mesajı gönderilemedi',
-      error: error.message
-    });
-  }
-};
-
-// Mesajı sabitle/sabitlemeyi kaldır
-exports.togglePinMessage = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const messageId = parseInt(req.params.messageId);
-    const { isPinned } = req.body;
-
-    // Mesajın varlığını ve kullanıcının yetkisini kontrol et
-    const [messageCheck] = await db.query(
-      'SELECT sender_id, receiver_id FROM direct_messages WHERE id = ?', 
+    // Mesajın sahibi mi kontrol et
+    const messageCheck = await db.query(
+      'SELECT sender_id, room_id FROM chat_messages WHERE id = ? AND is_deleted = 0',
       [messageId]
     );
-    
+
     if (messageCheck.length === 0) {
       return res.status(404).json({
         success: false,
@@ -666,99 +790,110 @@ exports.togglePinMessage = async (req, res) => {
     }
 
     const message = messageCheck[0];
-    if (message.sender_id !== userId && message.receiver_id !== userId) {
+    const isOwner = message.sender_id === userId;
+
+    // Herkes için silme sadece mesaj sahibi yapabilir
+    if (deleteType === 'for_everyone' && !isOwner) {
       return res.status(403).json({
         success: false,
-        message: 'Bu mesajı sabitleme yetkiniz yok'
+        message: 'Bu mesajı herkes için silme yetkiniz yok'
       });
     }
 
-    // Mesajı sabitle/sabitlemeyi kaldır
-    await db.query(
-      'UPDATE direct_messages SET is_pinned = ? WHERE id = ?',
-      [isPinned ? 1 : 0, messageId]
-    );
-
-    // Socket.IO ile güncellemeyi bildir
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user-${message.sender_id}`).emit('message-pin-updated', {
-        messageId,
-        isPinned
-      });
-      io.to(`user-${message.receiver_id}`).emit('message-pin-updated', {
-        messageId,
-        isPinned
-      });
+    if (deleteType === 'for_everyone') {
+      // Herkes için sil - mesajı soft delete yap
+      await db.query(
+        'UPDATE chat_messages SET is_deleted = 1, deleted_at = NOW() WHERE id = ?',
+        [messageId]
+      );
+    } else {
+      // Sadece kendim için sil - message_deletes tablosuna kaydet
+      await db.query(
+        'INSERT INTO message_deletes (message_id, user_id, delete_type) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE deleted_at = NOW()',
+        [messageId, userId, deleteType]
+      );
     }
 
     res.json({
       success: true,
-      message: isPinned ? 'Mesaj sabitlendi' : 'Mesaj sabitleme kaldırıldı'
+      message: deleteType === 'for_everyone' ? 'Mesaj herkes için silindi' : 'Mesaj sizin için silindi'
     });
 
   } catch (error) {
-    console.error('Mesaj sabitleme hatası:', error);
+    console.error('Mesaj silerken hata:', error);
     res.status(500).json({
       success: false,
-      message: 'Mesaj sabitlenemedi',
+      message: 'Mesaj silinemedi',
       error: error.message
     });
   }
 };
 
-// Tüm mesajları sil (sadece silen kullanıcı için)
-exports.deleteAllMessages = async (req, res) => {
+// =====================================================
+// KATILIMCI İŞLEMLERİ
+// =====================================================
+
+// Chat katılımcılarını getir
+const getChatParticipants = async (req, res) => {
   try {
     const userId = req.user.id;
-    const contactId = parseInt(req.params.contactId);
+    const { roomId } = req.params;
 
-    // message_deletes tablosu yoksa oluştur
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS message_deletes (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        message_id INT NOT NULL,
-        user_id INT NOT NULL,
-        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY unique_delete (message_id, user_id),
-        FOREIGN KEY (message_id) REFERENCES direct_messages(id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
+    // Kullanıcının bu odaya erişimi var mı kontrol et
+    const accessCheck = await db.query(
+      'SELECT role FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
+      [roomId, userId]
+    );
 
-    // İki kullanıcı arasındaki tüm mesajları bu kullanıcı için "silinmiş" olarak işaretle
-    const insertQuery = `
-      INSERT IGNORE INTO message_deletes (message_id, user_id)
-      SELECT dm.id, ? as user_id
-      FROM direct_messages dm
-      WHERE (dm.sender_id = ? AND dm.receiver_id = ?)
-         OR (dm.sender_id = ? AND dm.receiver_id = ?)
-    `;
-
-    const [result] = await db.query(insertQuery, [
-      userId, userId, contactId, contactId, userId
-    ]);
-
-    // Socket.IO ile güncellemeyi bildir
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user-${userId}`).emit('chat-cleared', {
-        contactId
+    if (accessCheck.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bu chat odasına erişim yetkiniz yok'
       });
     }
 
+    const query = `
+      SELECT 
+        cp.user_id,
+        cp.role,
+        cp.joined_at,
+        cp.last_seen_at,
+        cp.is_muted,
+        u.name,
+        u.email,
+        u.avatar,
+        u.is_online
+      FROM chat_participants cp
+      JOIN users u ON cp.user_id = u.id
+      WHERE cp.room_id = ? AND cp.left_at IS NULL
+      ORDER BY cp.role DESC, u.name ASC
+    `;
+
+    const participants = await db.query(query, [roomId]);
+
     res.json({
       success: true,
-      message: 'Tüm mesajlar silindi',
-      deletedCount: result.affectedRows
+      data: participants
     });
 
   } catch (error) {
-    console.error('Mesajları silme hatası:', error);
+    console.error('Katılımcıları getirirken hata:', error);
     res.status(500).json({
       success: false,
-      message: 'Mesajlar silinemedi',
+      message: 'Katılımcılar getirilemedi',
       error: error.message
     });
   }
+};
+
+module.exports = {
+  getChatRooms,
+  createOrGetDirectChat,
+  createGroupChat,
+  getChatMessages,
+  sendMessage,
+  markMessagesAsRead,
+  editMessage,
+  deleteMessage,
+  getChatParticipants
 };

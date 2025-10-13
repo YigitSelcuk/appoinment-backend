@@ -23,7 +23,7 @@ exports.login = async (req, res) => {
     
     // Kullanıcıyı veritabanından bul
     const query = 'SELECT * FROM users WHERE email = ?';
-    const [users] = await db.query(query, [email]);
+    const users = await db.query(query, [email]);
 
     if (users.length === 0) {
       return res.status(401).json({
@@ -82,11 +82,11 @@ exports.login = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Refresh token'ı HttpOnly cookie olarak ayarla
+    // Refresh token'ı HttpOnly cookie olarak ayarla (cross-site için SameSite=None)
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: process.env.NODE_ENV === 'production' ? true : false,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
       path: '/'
     });
@@ -137,7 +137,7 @@ exports.register = async (req, res) => {
 
     // Email zaten kayıtlı mı kontrol et
     const checkQuery = 'SELECT id FROM users WHERE email = ?';
-    const [existingUsers] = await db.query(checkQuery, [email]);
+    const existingUsers = await db.query(checkQuery, [email]);
 
     if (existingUsers.length > 0) {
       return res.status(409).json({
@@ -154,11 +154,11 @@ exports.register = async (req, res) => {
       INSERT INTO users (name, email, password, role, permissions, is_online, created_at)
       VALUES (?, ?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP)
     `;
-    const [result] = await db.query(insertQuery, [name, email, hashedPassword, roleNormalized, permissions ? JSON.stringify(permissions) : null]);
+    const result = await db.query(insertQuery, [name, email, hashedPassword, roleNormalized, permissions ? JSON.stringify(permissions) : null]);
 
     // Yeni kullanıcı bilgilerini al
-    const [newUser] = await db.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
-    const userData = newUser[0];
+    const newUserRows = await db.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
+    const userData = newUserRows[0];
 
     // JWT token oluştur
     const token = jwt.sign(
@@ -199,15 +199,23 @@ exports.register = async (req, res) => {
 // Token yenileme
 exports.refreshToken = async (req, res) => {
   try {
-    // req.cookies kontrolü
-    if (!req.cookies) {
-      return res.status(401).json({
-        success: false,
-        message: 'Cookies bulunamadı'
-      });
+    // Birden fazla kaynaktan refresh token'ı dene: Cookie -> Authorization header -> Body
+    let refreshToken = null;
+
+    if (req.cookies && req.cookies.refreshToken) {
+      refreshToken = req.cookies.refreshToken;
     }
 
-    const { refreshToken } = req.cookies;
+    if (!refreshToken) {
+      const authHeader = req.headers['authorization'];
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        refreshToken = authHeader.split(' ')[1];
+      }
+    }
+
+    if (!refreshToken && req.body && req.body.refreshToken) {
+      refreshToken = req.body.refreshToken;
+    }
 
     if (!refreshToken) {
       return res.status(401).json({
@@ -228,7 +236,7 @@ exports.refreshToken = async (req, res) => {
 
     // Kullanıcıyı veritabanından al
     const query = 'SELECT * FROM users WHERE id = ? AND email = ?';
-    const [users] = await db.query(query, [decoded.id, decoded.email]);
+    const users = await db.query(query, [decoded.id, decoded.email]);
 
     if (users.length === 0) {
       return res.status(401).json({
