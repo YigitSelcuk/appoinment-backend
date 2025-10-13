@@ -6,6 +6,14 @@ const notificationsController = require('./notificationsController');
 const { logActivity } = require('./activitiesController');
 const { getIO } = require('../utils/socket');
 
+// Yerel tarih formatı için yardımcı fonksiyon (saat dilimi kaymasını önler)
+const formatDateForDB = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // Randevu çakışması kontrolü
 const checkAppointmentConflict = async (userId, date, startTime, endTime, excludeId = null) => {
   try {
@@ -330,8 +338,17 @@ const createRepeatedAppointments = async ({
     let nextDate;
     
     if (repeat === 'HAFTALIK') {
-      nextDate = new Date(originalDate);
-      nextDate.setDate(originalDate.getDate() + (i * 7));
+      // Daha güvenli tarih hesaplama: milisaniye bazında hesaplama
+      const originalTime = originalDate.getTime();
+      const weekInMilliseconds = 7 * 24 * 60 * 60 * 1000; // 7 gün
+      nextDate = new Date(originalTime + (i * weekInMilliseconds));
+      
+      // Saat dilimi kayması kontrolü - orijinal günü korumak için
+      if (nextDate.getDay() !== originalDate.getDay()) {
+        // Gün kayması varsa, doğru güne ayarla
+        const dayDifference = originalDate.getDay() - nextDate.getDay();
+        nextDate.setDate(nextDate.getDate() + dayDifference);
+      }
     } else if (repeat === 'AYLIK') {
       nextDate = new Date(originalDate);
       nextDate.setMonth(originalDate.getMonth() + i);
@@ -342,7 +359,7 @@ const createRepeatedAppointments = async ({
       }
     }
     
-    const nextDateStr = nextDate.toISOString().split('T')[0];
+    const nextDateStr = formatDateForDB(nextDate);
     
     // Her randevu için parametre dizisi
     appointmentValues.push([
@@ -694,7 +711,7 @@ const createAppointment = async (req, res) => {
     
     if (repeat && repeat !== 'TEKRARLANMAZ') {
       try {
-        const repeatAppointments = await createRepeatedAppointments({
+        const repeatResult = await createRepeatedAppointments({
           originalAppointment: newAppointment[0],
           repeat,
           title,
@@ -710,8 +727,10 @@ const createAppointment = async (req, res) => {
           notificationEmail,
           notificationSMS
         });
-        createdAppointments = [...createdAppointments, ...repeatAppointments];
-        console.log(`${repeatAppointments.length} tekrarlanan randevu oluşturuldu`);
+        
+        if (repeatResult && repeatResult.success) {
+          console.log(`${repeatResult.count} tekrarlanan randevu oluşturuldu`);
+        }
       } catch (repeatError) {
         console.error('Tekrarlanan randevuları oluşturma hatası:', repeatError);
         // Ana randevu oluşturuldu, tekrarlanan randevularda hata olsa da devam et
@@ -1452,6 +1471,11 @@ const deleteAppointment = async (req, res) => {
 
     const existingAppointment = appointmentCheck;
     const user = req.user;
+    const appointment = existingAppointment[0];
+
+    // Google Event ID'sini kaydet (frontend'de Google Calendar'dan silmek için)
+    const googleEventId = appointment.google_event_id;
+    console.log('🔍 Silinecek randevunun Google Event ID:', googleEventId);
 
     // Yetki sistemi kaldırıldı - görünürlük varsa silme yapılabilir
 
@@ -1543,7 +1567,8 @@ const deleteAppointment = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Randevu başarıyla silindi'
+      message: 'Randevu başarıyla silindi',
+      googleEventId: googleEventId // Frontend'de Google Calendar'dan silmek için
     });
   } catch (error) {
     console.error('Randevu silme hatası:', error);
@@ -2143,7 +2168,7 @@ const getAppointmentStats = async (req, res) => {
       const date = new Date(today);
       date.setDate(today.getDate() - i);
       weekDays.push({
-        date: date.toISOString().split('T')[0],
+        date: formatDateForDB(date),
         dayName: ['PAZ', 'PZT', 'SAL', 'ÇAR', 'PER', 'CUM', 'CTS'][date.getDay()]
       });
     }
