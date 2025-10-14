@@ -478,5 +478,52 @@ module.exports = {
       });
     }
     next();
+  },
+  
+  // Require management permission middleware
+  requireManagement: (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Oturum açmanız gerekir'
+      });
+    }
+
+    // Admin, başkan rolü veya BAŞKAN departmanı her zaman geçer
+    if (req.user.role === 'admin' || req.user.role === 'başkan' || req.user.department === 'BAŞKAN') {
+      return next();
+    }
+
+    // Kullanıcının management izni var mı kontrol et
+    let hasManagementPermission = false;
+    
+    if (req.user.permissions) {
+      if (Array.isArray(req.user.permissions)) {
+        hasManagementPermission = req.user.permissions.includes('management');
+      } else if (typeof req.user.permissions === 'object') {
+        hasManagementPermission = Boolean(req.user.permissions.management);
+      } else if (typeof req.user.permissions === 'string') {
+        try {
+          const parsedPermissions = JSON.parse(req.user.permissions);
+          if (Array.isArray(parsedPermissions)) {
+            hasManagementPermission = parsedPermissions.includes('management');
+          } else if (typeof parsedPermissions === 'object') {
+            hasManagementPermission = Boolean(parsedPermissions.management);
+          }
+        } catch (e) {
+          console.warn('requireManagement: permissions parse edilemedi:', req.user.permissions);
+          hasManagementPermission = false;
+        }
+      }
+    }
+
+    if (!hasManagementPermission) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bu işlem için yönetim yetkisi gerekir'
+      });
+    }
+
+    next();
   }
 };

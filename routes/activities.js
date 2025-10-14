@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getActivities, getActivityStats, logActivityEndpoint, checkTimezone } = require('../controllers/activitiesController');
-const { authenticateToken, requireAdmin } = require('../middleware/security');
+const { authenticateToken, requireManagement } = require('../middleware/security');
 
-// Tüm rotalar için auth middleware ve admin kontrolü
+// Tüm rotalar için auth middleware ve management kontrolü
 router.use(authenticateToken);
-router.use(requireAdmin);
+router.use(requireManagement);
 
 // Aktiviteleri getir
 router.get('/', getActivities);

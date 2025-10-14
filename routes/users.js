@@ -13,7 +13,7 @@ const {
   deleteMultipleUsers,
   getDepartments
 } = require('../controllers/usersController');
-const { authenticateToken, requireAdmin } = require('../middleware/security');
+const { authenticateToken, requireAdmin, requireManagement } = require('../middleware/security');
 const upload = require('../middleware/upload');
 
 // Kullanıcıları listele
@@ -34,19 +34,19 @@ router.put('/profile', authenticateToken, upload.single('avatar'), upload.handle
 // Kullanıcının online durumunu kontrol et
 router.get('/online-status', authenticateToken, getUserOnlineStatus);
 
-// Admin: Yeni kullanıcı oluştur
-router.post('/', authenticateToken, requireAdmin, createUser);
+// Management: Yeni kullanıcı oluştur
+router.post('/', authenticateToken, requireManagement, createUser);
 
-// Admin: Kullanıcı izinlerini güncelle
-router.put('/:id/permissions', authenticateToken, requireAdmin, updateUserPermissions);
+// Management: Kullanıcı izinlerini güncelle
+router.put('/:id/permissions', authenticateToken, requireManagement, updateUserPermissions);
 
-// Kullanıcı güncelle (Admin)
-router.put('/:id', authenticateToken, requireAdmin, updateUser);
+// Kullanıcı güncelle (Management)
+router.put('/:id', authenticateToken, requireManagement, updateUser);
 
-// Toplu kullanıcı silme (Admin)
-router.delete('/bulk', authenticateToken, requireAdmin, deleteMultipleUsers);
+// Toplu kullanıcı silme (Management)
+router.delete('/bulk', authenticateToken, requireManagement, deleteMultipleUsers);
 
-// Kullanıcı sil (Admin)
-router.delete('/:id', authenticateToken, requireAdmin, deleteUser);
+// Kullanıcı sil (Management)
+router.delete('/:id', authenticateToken, requireManagement, deleteUser);
 
 module.exports = router;
