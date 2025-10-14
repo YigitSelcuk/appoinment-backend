@@ -2159,48 +2159,95 @@ const updateReminderTime = async (req, res) => {
 const getAppointmentStats = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { period = 'HAFTALIK' } = req.query; // HAFTALIK, AYLIK veya YILLIK
     
-    // Son 7 günün tarihlerini hesapla
     const today = new Date();
-    const weekDays = [];
+    let stats = [];
+    let colors = ['#A7F3D0', '#6EE7B7', '#34D399', '#10B981', '#059669', '#047857', '#065F46'];
     
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      weekDays.push({
-        date: formatDateForDB(date),
-        dayName: ['PAZ', 'PZT', 'SAL', 'ÇAR', 'PER', 'CUM', 'CTS'][date.getDay()]
-      });
-    }
-    
-    // Her gün için randevu sayısını getir
-    const dailyStats = [];
-    
-    for (const day of weekDays) {
-      const [result] = await db.execute(
-        `SELECT COUNT(*) as count FROM appointments 
-         WHERE user_id = ? AND DATE(date) = ?`,
-        [userId, day.date]
-      );
+    if (period === 'YILLIK') {
+      // Yıllık görünüm - Son 12 ay
+      const monthNames = ['OCA', 'ŞUB', 'MAR', 'NİS', 'MAY', 'HAZ', 'TEM', 'AĞU', 'EYL', 'EKİ', 'KAS', 'ARA'];
+      colors = ['#A7F3D0', '#6EE7B7', '#34D399', '#10B981', '#059669', '#047857', '#065F46', '#A7F3D0', '#6EE7B7', '#34D399', '#10B981', '#059669'];
       
-      dailyStats.push({
-        day: day.dayName,
-        value: result[0].count,
-        color: '#10B981'
-      });
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() - i + 1, 1);
+        
+        const [result] = await db.execute(
+          `SELECT COUNT(*) as count FROM appointments 
+           WHERE DATE(date) >= ? AND DATE(date) < ?`,
+          [formatDateForDB(date), formatDateForDB(nextMonth)]
+        );
+        
+        stats.push({
+          day: monthNames[date.getMonth()],
+          value: result[0].count,
+          color: colors[11 - i]
+        });
+      }
+    } else if (period === 'AYLIK') {
+      // Aylık görünüm - Son 30 gün (haftalık gruplar)
+      const weekNames = ['1. HAFTA', '2. HAFTA', '3. HAFTA', '4. HAFTA'];
+      colors = ['#A7F3D0', '#6EE7B7', '#34D399', '#10B981'];
+      
+      for (let week = 0; week < 4; week++) {
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - (30 - (week * 7)));
+        const endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 6);
+        
+        const [result] = await db.execute(
+          `SELECT COUNT(*) as count FROM appointments 
+           WHERE DATE(date) >= ? AND DATE(date) <= ?`,
+          [formatDateForDB(startDate), formatDateForDB(endDate)]
+        );
+        
+        stats.push({
+          day: weekNames[week],
+          value: result[0].count,
+          color: colors[week]
+        });
+      }
+    } else {
+      // Varsayılan haftalık görünüm - Son 7 gün (günlük)
+      const dayNames = ['PZT', 'SAL', 'ÇAR', 'PER', 'CUM', 'CMT', 'PZR'];
+      
+      // Bu haftanın Pazartesi'sini bul
+      const currentDay = today.getDay();
+      const mondayOffset = currentDay === 0 ? 6 : currentDay - 1; // Pazar = 0, Pazartesi = 1
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - mondayOffset);
+      
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + i);
+        
+        const [result] = await db.execute(
+          `SELECT COUNT(*) as count FROM appointments 
+           WHERE DATE(date) = ?`,
+          [formatDateForDB(date)]
+        );
+        
+        stats.push({
+          day: dayNames[i],
+          value: result[0].count,
+          color: colors[i]
+        });
+      }
     }
     
-    // Toplam randevu sayısını getir
+    // Toplam randevu sayısını getir (TÜM RANDEVULAR)
     const [totalResult] = await db.execute(
-      'SELECT COUNT(*) as total FROM appointments WHERE user_id = ?',
-      [userId]
+      'SELECT COUNT(*) as total FROM appointments'
     );
     
     res.json({
       success: true,
       data: {
-        dailyStats,
-        total: totalResult[0].total
+        dailyStats: stats,
+        total: totalResult[0].total,
+        period: period
       }
     });
     
