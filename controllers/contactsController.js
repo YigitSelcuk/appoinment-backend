@@ -285,6 +285,56 @@ const deleteContact = async (req, res) => {
   }
 };
 
+// Toplu kişi silme
+const deleteMultipleContacts = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.userId;
+    const { contactIds } = req.body;
+    
+    // contactIds array kontrolü
+    if (!contactIds || !Array.isArray(contactIds) || contactIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Silinecek kişi ID\'leri gereklidir'
+      });
+    }
+    
+    // Kişilerin varlığını kontrol et
+    const placeholders = contactIds.map(() => '?').join(',');
+    const [existingContacts] = await promisePool.execute(
+      `SELECT id, name, surname FROM contacts WHERE id IN (${placeholders})`,
+      contactIds
+    );
+    
+    if (existingContacts.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Silinecek kişi bulunamadı'
+      });
+    }
+    
+    // Toplu silme işlemi
+    await promisePool.execute(
+      `DELETE FROM contacts WHERE id IN (${placeholders})`,
+      contactIds
+    );
+    
+    res.json({
+      success: true,
+      message: `${existingContacts.length} kişi başarıyla silindi`,
+      deletedCount: existingContacts.length,
+      deletedContacts: existingContacts
+    });
+    
+  } catch (error) {
+    console.error('Toplu kişi silinirken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kişiler silinirken hata oluştu'
+    });
+  }
+};
+
 // Kategorileri getir (contacts için)
 const getCategories = async (req, res) => {
   try {
@@ -543,6 +593,7 @@ const deleteCategory = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const categoryId = req.params.id;
+    const { targetCategoryId } = req.body || {};
     
     // Kategorinin varlığını ve sahibini kontrol et
     const [existingCategory] = await promisePool.execute(
@@ -559,11 +610,36 @@ const deleteCategory = async (req, res) => {
     
     const altKategoriName = existingCategory[0].alt_kategori;
     
-    // Bu alt kategoriye ait kişileri "Kategori Yok" kategorisine taşı
-    await promisePool.execute(
-      'UPDATE contacts SET category = ? WHERE user_id = ? AND category = ?',
-      ['Kategori Yok', userId, altKategoriName]
+    // Bu kategorideki kişi sayısını kontrol et
+    const [contactCount] = await promisePool.execute(
+      'SELECT COUNT(*) as count FROM contacts WHERE user_id = ? AND category = ?',
+      [userId, altKategoriName]
     );
+    
+    let targetCategoryName = 'Kategori Yok';
+    let moveMessage = 'Bu kategorideki kişiler "Kategori Yok" kategorisine taşındı.';
+    
+    // Eğer kişi varsa ve hedef kategori belirtilmişse
+    if (contactCount[0].count > 0 && targetCategoryId) {
+      // Hedef kategorinin varlığını kontrol et
+      const [targetCategory] = await promisePool.execute(
+        'SELECT alt_kategori FROM categories WHERE id = ? AND user_id = ?',
+        [targetCategoryId, userId]
+      );
+      
+      if (targetCategory.length > 0) {
+        targetCategoryName = targetCategory[0].alt_kategori;
+        moveMessage = `Bu kategorideki ${contactCount[0].count} kişi "${targetCategoryName}" kategorisine taşındı.`;
+      }
+    }
+    
+    // Kişileri hedef kategoriye taşı
+    if (contactCount[0].count > 0) {
+      await promisePool.execute(
+        'UPDATE contacts SET category = ? WHERE user_id = ? AND category = ?',
+        [targetCategoryName, userId, altKategoriName]
+      );
+    }
     
     // Kategoriyi sil
     await promisePool.execute(
@@ -573,7 +649,8 @@ const deleteCategory = async (req, res) => {
     
     res.json({
       success: true,
-      message: 'Kategori başarıyla silindi. Bu kategorideki kişiler "Kategori Yok" kategorisine taşındı.'
+      message: `Kategori başarıyla silindi. ${moveMessage}`,
+      movedContactsCount: contactCount[0].count
     });
     
   } catch (error) {
@@ -882,6 +959,7 @@ module.exports = {
   createContact,
   updateContact,
   deleteContact,
+  deleteMultipleContacts,
   getCategories,
   getCategoriesWithStats,
   getAllCategoriesForDropdown,

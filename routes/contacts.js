@@ -8,6 +8,7 @@ const {
   createContact,
   updateContact,
   deleteContact,
+  deleteMultipleContacts,
   getCategories,
   getCategoriesWithStats,
   getAllCategoriesForDropdown,
@@ -42,6 +43,7 @@ router.get('/', getContacts);
 router.get('/:id', getContact);
 router.post('/', upload.single('avatar'), createContact); // Resim yükleme desteği
 router.put('/:id', updateContact);
+router.delete('/bulk', deleteMultipleContacts); // Toplu silme - spesifik route önce gelmelidir
 router.delete('/:id', deleteContact);
 
 module.exports = router;

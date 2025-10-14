@@ -13,7 +13,8 @@ const dbConfig = {
   ssl: false, // SSL devre dışı
   connectionLimit: 10,
   queueLimit: 0,
-  multipleStatements: false
+  multipleStatements: false,
+  timezone: '+03:00' // Türkiye saat dilimi
 };
 
 // Senkron bağlantı (callback tabanlı)
@@ -54,7 +55,8 @@ const pool = mysql.createPool({
   multipleStatements: false,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  timezone: '+03:00' // Türkiye saat dilimi
 });
 
 // Promise tabanlı pool

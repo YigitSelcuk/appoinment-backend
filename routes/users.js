@@ -10,6 +10,7 @@ const {
   updateUser, 
   updateUserPermissions,
   deleteUser,
+  deleteMultipleUsers,
   getDepartments
 } = require('../controllers/usersController');
 const { authenticateToken, requireAdmin } = require('../middleware/security');
@@ -41,6 +42,9 @@ router.put('/:id/permissions', authenticateToken, requireAdmin, updateUserPermis
 
 // Kullanıcı güncelle (Admin)
 router.put('/:id', authenticateToken, requireAdmin, updateUser);
+
+// Toplu kullanıcı silme (Admin)
+router.delete('/bulk', authenticateToken, requireAdmin, deleteMultipleUsers);
 
 // Kullanıcı sil (Admin)
 router.delete('/:id', authenticateToken, requireAdmin, deleteUser);

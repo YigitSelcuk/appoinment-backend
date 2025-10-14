@@ -10,6 +10,7 @@ const {
   createCV,
   updateCV,
   deleteCV,
+  deleteMultipleCVs,
   getStatuses,
   downloadCVFile,
   getProfileImage,
@@ -102,6 +103,9 @@ router.put('/:id', upload.fields([
   { name: 'cv_dosyasi', maxCount: 1 },
   { name: 'profil_resmi', maxCount: 1 }
 ]), updateCV);
+
+// Toplu CV silme
+router.delete('/bulk', deleteMultipleCVs);
 
 // DELETE /api/cvs/:id - CV sil
 router.delete('/:id', deleteCV);

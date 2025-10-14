@@ -866,11 +866,76 @@ const getRequestStatusHistory = async (req, res) => {
   }
 };
 
+const deleteMultipleRequests = async (req, res) => {
+  try {
+    const { requestIds } = req.body;
+
+    if (!requestIds || !Array.isArray(requestIds) || requestIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Geçerli talep ID\'leri gerekli'
+      });
+    }
+
+    // Tüm taleplerin var olup olmadığını ve kullanıcıya ait olup olmadığını kontrol et
+    const placeholders = requestIds.map(() => '?').join(',');
+    const checkQuery = `SELECT * FROM requests WHERE id IN (${placeholders}) AND user_id = ?`;
+    const [existing] = await db.execute(checkQuery, [...requestIds, req.user.id]);
+
+    if (existing.length !== requestIds.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bazı talepler bulunamadı veya size ait değil'
+      });
+    }
+
+    // Toplu silme işlemi
+    const deleteQuery = `DELETE FROM requests WHERE id IN (${placeholders}) AND user_id = ?`;
+    await db.execute(deleteQuery, [...requestIds, req.user.id]);
+
+    // Her silinen talep için aktivite kaydı
+    for (const record of existing) {
+      await logActivity(
+        req.user.id,
+        req.user.name || req.user.email,
+        req.user.email,
+        'DELETE',
+        'requests',
+        record.id,
+        `Talep silindi: ${record.ad} ${record.soyad} - ${record.talep_basligi}`,
+        {
+          ad: record.ad,
+          soyad: record.soyad,
+          talep_basligi: record.talep_basligi,
+          durum: record.durum
+        },
+        null,
+        req.ip,
+        req.get('User-Agent')
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `${requestIds.length} talep başarıyla silindi`,
+      deletedCount: requestIds.length
+    });
+
+  } catch (error) {
+    console.error('Toplu talep silme hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Talepler silinirken bir hata oluştu'
+    });
+  }
+};
+
 module.exports = {
   getRequests,
   createRequest,
   updateRequest,
   deleteRequest,
+  deleteMultipleRequests,
   getRequestById,
   checkTCExists,
   getDepartmentRequests,

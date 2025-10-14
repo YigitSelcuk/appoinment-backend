@@ -24,6 +24,9 @@ router.put('/:id', tasksController.updateTask);
 // PUT /api/tasks/:id/approval - Görev onay durumunu güncelle
 router.put('/:id/approval', tasksController.updateTaskApproval);
 
+// DELETE /api/tasks/bulk - Toplu görev silme
+router.delete('/bulk', tasksController.deleteMultipleTasks);
+
 // DELETE /api/tasks/:id - Görevi sil
 router.delete('/:id', tasksController.deleteTask);
 

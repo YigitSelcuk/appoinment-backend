@@ -655,6 +655,65 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// Admin: Toplu kullanıcı silme
+const deleteMultipleUsers = async (req, res) => {
+  try {
+    const { userIds } = req.body;
+    const currentUserId = req.user.id;
+
+    // userIds array kontrolü
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Silinecek kullanıcı ID\'leri gereklidir'
+      });
+    }
+
+    // Kendi kendini silmeye izin verme
+    if (userIds.includes(currentUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Kendi hesabınızı silemezsiniz'
+      });
+    }
+
+    // Kullanıcıların var olup olmadığını kontrol et
+    const placeholders = userIds.map(() => '?').join(',');
+    const [existingUsers] = await db.execute(
+      `SELECT id, name, email FROM users WHERE id IN (${placeholders})`,
+      userIds
+    );
+
+    if (existingUsers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Silinecek kullanıcı bulunamadı'
+      });
+    }
+
+    // Toplu silme işlemi
+    await db.execute(
+      `DELETE FROM users WHERE id IN (${placeholders})`,
+      userIds
+    );
+
+    res.json({
+      success: true,
+      message: `${existingUsers.length} kullanıcı başarıyla silindi`,
+      deletedCount: existingUsers.length,
+      deletedUsers: existingUsers
+    });
+
+  } catch (error) {
+    console.error('Toplu kullanıcı silme hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kullanıcılar silinirken hata oluştu',
+      error: error.message
+    });
+  }
+};
+
 // Tekrarsız department listesini getir
 const getDepartments = async (req, res) => {
   try {
@@ -691,5 +750,6 @@ module.exports = {
   updateUser,
   updateUserPermissions,
   deleteUser,
+  deleteMultipleUsers,
   getDepartments
 };

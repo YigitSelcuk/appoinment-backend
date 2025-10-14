@@ -50,7 +50,7 @@ const getActivities = async (req, res) => {
     const query = `
       SELECT 
         a.*,
-        DATE_FORMAT(a.created_at, '%d.%m.%Y %H:%i:%s') as created_at_display
+        DATE_FORMAT(CONVERT_TZ(a.created_at, @@session.time_zone, '+03:00'), '%d.%m.%Y %H:%i:%s') as created_at_display
       FROM activities a
       ${whereClause}
       ORDER BY a.created_at DESC
@@ -122,11 +122,16 @@ const getActivities = async (req, res) => {
 // Aktivite kaydet
 const logActivity = async (userId, userName, userEmail, actionType, tableName, recordId, description, oldValues = null, newValues = null, ipAddress = null, userAgent = null) => {
   try {
+    // Türkiye saat dilimi için tarih oluştur
+    const now = new Date();
+    const turkeyTime = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Istanbul"}));
+    const formattedDate = turkeyTime.toISOString().slice(0, 19).replace('T', ' ');
+
     const query = `
       INSERT INTO activities (
         user_id, user_name, user_email, action_type, table_name, record_id, 
-        description, old_values, new_values, ip_address, user_agent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        description, old_values, new_values, ip_address, user_agent, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -140,7 +145,8 @@ const logActivity = async (userId, userName, userEmail, actionType, tableName, r
       oldValues ? JSON.stringify(oldValues) : null,
       newValues ? JSON.stringify(newValues) : null,
       ipAddress,
-      userAgent
+      userAgent,
+      formattedDate
     ];
 
     await db.execute(query, values);
@@ -264,9 +270,37 @@ const logActivityEndpoint = async (req, res) => {
   }
 };
 
+// MySQL saat dilimi kontrol fonksiyonu
+const checkTimezone = async (req, res) => {
+  try {
+    const [timezoneResult] = await db.execute(`
+      SELECT 
+        @@global.time_zone as global_timezone,
+        @@session.time_zone as session_timezone,
+        NOW() as server_time,
+        UTC_TIMESTAMP() as utc_time,
+        CONVERT_TZ(NOW(), @@session.time_zone, '+03:00') as turkey_time
+    `);
+
+    res.json({
+      success: true,
+      timezone_info: timezoneResult[0]
+    });
+
+  } catch (error) {
+    console.error('Saat dilimi kontrol hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Saat dilimi kontrol edilirken hata oluştu',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getActivities,
   logActivity,
   logActivityEndpoint,
-  getActivityStats
+  getActivityStats,
+  checkTimezone
 };

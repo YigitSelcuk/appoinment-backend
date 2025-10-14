@@ -5,6 +5,7 @@ const {
   createRequest,
   updateRequest,
   deleteRequest,
+  deleteMultipleRequests,
   getRequestById,
   checkTCExists,
   getDepartmentRequests,
@@ -37,6 +38,9 @@ router.get('/:id', getRequestById);
 
 // PUT /api/requests/:id - Talep güncelle
 router.put('/:id', updateRequest);
+
+// DELETE /api/requests/bulk - Toplu talep sil
+router.delete('/bulk', deleteMultipleRequests);
 
 // DELETE /api/requests/:id - Talep sil
 router.delete('/:id', deleteRequest);

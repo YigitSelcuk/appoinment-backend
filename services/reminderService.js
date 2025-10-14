@@ -124,6 +124,18 @@ class ReminderService {
       const now = new Date();
       console.log(`🔍 Hatırlatma kontrolü: ${now.toLocaleString('tr-TR')}`);
       
+      // Türkiye saati için +3 saat ekle (UTC+3)
+      const nowWithTimezone = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+      const nowForDB = nowWithTimezone.getFullYear() + '-' + 
+        String(nowWithTimezone.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(nowWithTimezone.getDate()).padStart(2, '0') + ' ' + 
+        String(nowWithTimezone.getHours()).padStart(2, '0') + ':' + 
+        String(nowWithTimezone.getMinutes()).padStart(2, '0') + ':' + 
+        String(nowWithTimezone.getSeconds()).padStart(2, '0');
+      
+      console.log(`🕐 Şu anki zaman (UTC+3): ${nowWithTimezone.toLocaleString('tr-TR')}`);
+      console.log(`🕐 DB karşılaştırma zamanı: ${nowForDB}`);
+      
       const [reminders] = await db.execute(
         `SELECT ar.*, a.title, a.date, a.start_time, a.end_time, a.location, a.description,
                 a.user_id, a.notification_email, a.notification_sms, a.status as appointment_status,
@@ -131,10 +143,10 @@ class ReminderService {
          FROM appointment_reminders ar
          JOIN appointments a ON ar.appointment_id = a.id
          JOIN users u ON a.user_id = u.id
-         WHERE ar.reminder_time <= NOW() AND ar.status = 'scheduled'
+         WHERE ar.reminder_time <= ? AND ar.status = 'scheduled'
          AND a.status != 'CANCELLED'
          ORDER BY ar.reminder_time ASC`,
-        []
+        [nowForDB]
       );
       
       if (reminders.length === 0) {
@@ -166,9 +178,9 @@ class ReminderService {
     try {
       console.log(`📤 Hatırlatma gönderiliyor: ${reminder.title} (ID: ${reminder.id})`);
       
-      // Durumu 'sending' yap (çift gönderim önleme)
+      // Durumu 'pending' yap (çift gönderim önleme)
       const [updateResult] = await db.execute(
-        'UPDATE appointment_reminders SET status = "sending", updated_at = NOW() WHERE id = ? AND status = "scheduled"',
+        'UPDATE appointment_reminders SET status = "pending", updated_at = NOW() WHERE id = ? AND status = "scheduled"',
         [reminder.id]
       );
       

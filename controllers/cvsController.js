@@ -483,6 +483,79 @@ const deleteCV = async (req, res) => {
   }
 };
 
+// Toplu CV silme
+const deleteMultipleCVs = async (req, res) => {
+  try {
+    const { cvIds } = req.body;
+    const user_id = req.user.id;
+
+    // Giriş validasyonu
+    if (!cvIds || !Array.isArray(cvIds) || cvIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Geçerli CV ID\'leri gerekli.'
+      });
+    }
+
+    // CV'lerin varlığını ve sahipliğini kontrol et
+    const placeholders = cvIds.map(() => '?').join(',');
+    const [existingCVs] = await promisePool.execute(
+      `SELECT * FROM cvs WHERE id IN (${placeholders}) AND user_id = ?`,
+      [...cvIds, user_id]
+    );
+
+    if (existingCVs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Silinecek CV bulunamadı.'
+      });
+    }
+
+    if (existingCVs.length !== cvIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bazı CV\'ler bulunamadı veya size ait değil.'
+      });
+    }
+
+    // CV'leri toplu olarak sil
+    await promisePool.execute(
+      `DELETE FROM cvs WHERE id IN (${placeholders}) AND user_id = ?`,
+      [...cvIds, user_id]
+    );
+
+    // Her CV için aktivite kaydı oluştur
+    for (const cv of existingCVs) {
+      await logActivity(
+        req.user.id,
+        req.user.name || req.user.username || 'Bilinmeyen Kullanıcı',
+        req.user.email || '',
+        'DELETE',
+        'cvs',
+        cv.id,
+        `CV silindi (Toplu): ${cv.adi} ${cv.soyadi} - ${cv.meslek}`,
+        JSON.stringify(cv),
+        null,
+        req.ip || req.connection.remoteAddress,
+        req.get('User-Agent')
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `${existingCVs.length} CV başarıyla silindi.`,
+      deletedCount: existingCVs.length
+    });
+
+  } catch (error) {
+    console.error('Toplu CV silme hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'CV\'ler silinirken bir hata oluştu.'
+    });
+  }
+};
+
 // Durum listesini getir
 const getStatuses = async (req, res) => {
   try {
@@ -712,6 +785,7 @@ module.exports = {
   createCV,
   updateCV,
   deleteCV,
+  deleteMultipleCVs,
   getStatuses,
   downloadCVFile,
   getProfileImage,

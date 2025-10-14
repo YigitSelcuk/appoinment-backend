@@ -745,6 +745,88 @@ const updateTaskApproval = async (req, res) => {
   }
 };
 
+// Toplu görev silme
+const deleteMultipleTasks = async (req, res) => {
+  try {
+    const { taskIds } = req.body;
+    const userId = req.user?.id || 1;
+    const userName = req.user?.name || 'Admin User';
+    const userEmail = req.user?.email || 'admin@test.com';
+
+    if (!taskIds || !Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Geçerli görev ID\'leri gerekli'
+      });
+    }
+
+    // Tüm görevlerin var olup olmadığını ve kullanıcıya ait olup olmadığını kontrol et
+    const placeholders = taskIds.map(() => '?').join(',');
+    const checkQuery = `SELECT * FROM tasks WHERE id IN (${placeholders}) AND user_id = ?`;
+    const [existingTasks] = await db.execute(checkQuery, [...taskIds, userId]);
+
+    if (existingTasks.length !== taskIds.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bazı görevler bulunamadı veya silme yetkiniz yok'
+      });
+    }
+
+    // Atanan kişilere bildirim gönder
+    for (const task of existingTasks) {
+      if (task.assignee_id && task.assignee_id !== userId) {
+        try {
+          await notificationsController.createNotification(
+            task.assignee_id,
+            'Görev Silindi',
+            `Size atanan görev silindi: ${task.title}`,
+            'task_deleted',
+            task.id,
+            'tasks'
+          );
+        } catch (notificationError) {
+          console.error('Görev silme bildirimi gönderme hatası:', notificationError);
+        }
+      }
+    }
+
+    // Toplu silme işlemi
+    const deleteQuery = `DELETE FROM tasks WHERE id IN (${placeholders}) AND user_id = ?`;
+    await db.execute(deleteQuery, [...taskIds, userId]);
+
+    // Her silinen görev için aktivite kaydı
+    const { logActivity } = require('./activitiesController');
+    for (const task of existingTasks) {
+      await logActivity(
+        userId,
+        userName,
+        userEmail,
+        'DELETE',
+        'tasks',
+        task.id,
+        `Görev silindi: ${task.title}`,
+        task,
+        null,
+        req.ip,
+        req.get('User-Agent')
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `${existingTasks.length} görev başarıyla silindi`
+    });
+
+  } catch (error) {
+    console.error('Toplu görev silinirken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Toplu görev silinirken hata oluştu',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getTasks,
   getTask,
@@ -752,5 +834,6 @@ module.exports = {
   updateTask,
   updateTaskApproval,
   deleteTask,
+  deleteMultipleTasks,
   getTaskStats
 };

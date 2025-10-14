@@ -183,6 +183,7 @@ app.use('/api/email', require('./routes/email'));
 app.use('/api/cvs', require('./routes/cvs'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/rehber', require('./routes/rehber'));
+app.use('/api/departments', require('./routes/departments'));
 
 // 404 handler - Bilinmeyen endpoint'ler için
 app.use('*', (req, res) => {
