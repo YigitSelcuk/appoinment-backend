@@ -2,7 +2,6 @@ const nodemailer = require('nodemailer');
 
 class EmailService {
     constructor() {
-        // .env dosyasından e-posta konfigürasyonu
         this.transporter = nodemailer.createTransport({
             host: process.env.EMAIL_HOST,
             port: parseInt(process.env.EMAIL_PORT),

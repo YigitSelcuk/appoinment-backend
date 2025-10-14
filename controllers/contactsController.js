@@ -1,7 +1,5 @@
-// Merkezi veritabanı bağlantısı
 const { createAsyncConnection, promisePool } = require('../config/database');
 
-// Tüm kişileri getir
 const getContacts = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
@@ -11,10 +9,8 @@ const getContacts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 14;
     const offset = (page - 1) * limit;
     
-    // Arama parametresi
     const { search } = req.query;
     
-    // Tüm kullanıcıların kişilerini getir (user_id filtresi kaldırıldı)
     let whereClause = 'WHERE 1=1';
     let queryParams = [];
     
@@ -24,12 +20,10 @@ const getContacts = async (req, res) => {
       queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
     }
     
-    // Toplam sayı sorgusu
     const countQuery = `SELECT COUNT(*) as total FROM contacts ${whereClause}`;
     const [countResult] = await promisePool.execute(countQuery, queryParams);
     const total = countResult[0].total;
     
-    // Basit sorgu - LIMIT ve OFFSET'i doğrudan SQL'e ekle
     const dataQuery = `
       SELECT id, tc_no, name, surname, phone1, phone2, email, category, title, district, address, notes, avatar, gender, created_at, updated_at
       FROM contacts 
@@ -40,7 +34,6 @@ const getContacts = async (req, res) => {
     
     const [rows] = await promisePool.execute(dataQuery, queryParams);
     
-    // Avatar URL'lerini tam URL'ye çevir
     const processedRows = rows.map(contact => ({
       ...contact,
       avatar: contact.avatar && !contact.avatar.startsWith('http') 
@@ -68,13 +61,11 @@ const getContacts = async (req, res) => {
   }
 };
 
-// Tek kişi getir
 const getContact = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const contactId = req.params.id;
     
-    // Tüm kullanıcıların kişilerini görebilmesi için user_id filtresi kaldırıldı
     const [rows] = await promisePool.execute(
       'SELECT * FROM contacts WHERE id = ?',
       [contactId]
@@ -87,7 +78,6 @@ const getContact = async (req, res) => {
       });
     }
     
-    // Avatar URL'ini tam URL'ye çevir
     const contact = {
       ...rows[0],
       avatar: rows[0].avatar && !rows[0].avatar.startsWith('http') 
@@ -109,13 +99,11 @@ const getContact = async (req, res) => {
   }
 };
 
-// Yeni kişi ekle
 const createContact = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const { name, surname, phone1, phone2, email, category, title, district, tc_no, gender } = req.body;
     
-    // Zorunlu alanları kontrol et
     if (!name || !surname || !phone1) {
       return res.status(400).json({
         success: false,
@@ -126,10 +114,8 @@ const createContact = async (req, res) => {
     console.log('Gelen veri:', { name, surname, phone1, phone2, email, category, title, district, tc_no, gender });
     console.log('Yüklenen dosya:', req.file);
     
-    // Avatar yolu (eğer dosya yüklendiyse)
     const avatarPath = req.file ? `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/avatars/${req.file.filename}` : null;
     
-    // Tüm alanları kontrol et ve null/undefined değerleri düzelt
     const insertData = {
       user_id: userId,
       tc_no: tc_no || null,
@@ -170,7 +156,6 @@ const createContact = async (req, res) => {
       ]
     );
     
-    // Eklenen kişiyi getir
     const [newContact] = await promisePool.execute(
       'SELECT * FROM contacts WHERE id = ?',
       [result.insertId]
@@ -191,14 +176,12 @@ const createContact = async (req, res) => {
   }
 };
 
-// Kişi güncelle
 const updateContact = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const contactId = req.params.id;
     const { name, surname, phone1, phone2, email, category, title, district, address, notes, tc_no, gender } = req.body;
     
-    // Zorunlu alanları kontrol et
     if (!name || !surname || !phone1) {
       return res.status(400).json({
         success: false,
@@ -206,7 +189,6 @@ const updateContact = async (req, res) => {
       });
     }
     
-    // Kişinin varlığını kontrol et (user_id filtresi kaldırıldı)
     const [existingContact] = await promisePool.execute(
       'SELECT id FROM contacts WHERE id = ?',
       [contactId]
@@ -226,7 +208,6 @@ const updateContact = async (req, res) => {
       [tc_no || null, name, surname, phone1, phone2 || null, email || null, category || 'GENEL', title || null, district || null, address || null, notes || null, gender || 'ERKEK', contactId]
     );
     
-    // Güncellenmiş kişiyi getir
     const [updatedContact] = await promisePool.execute(
       'SELECT * FROM contacts WHERE id = ?',
       [contactId]
@@ -247,13 +228,11 @@ const updateContact = async (req, res) => {
   }
 };
 
-// Kişi sil
 const deleteContact = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const contactId = req.params.id;
     
-    // Kişinin varlığını kontrol et (user_id filtresi kaldırıldı)
     const [existingContact] = await promisePool.execute(
       'SELECT id FROM contacts WHERE id = ?',
       [contactId]
@@ -285,13 +264,11 @@ const deleteContact = async (req, res) => {
   }
 };
 
-// Toplu kişi silme
 const deleteMultipleContacts = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const { contactIds } = req.body;
     
-    // contactIds array kontrolü
     if (!contactIds || !Array.isArray(contactIds) || contactIds.length === 0) {
       return res.status(400).json({
         success: false,
@@ -299,7 +276,6 @@ const deleteMultipleContacts = async (req, res) => {
       });
     }
     
-    // Kişilerin varlığını kontrol et
     const placeholders = contactIds.map(() => '?').join(',');
     const [existingContacts] = await promisePool.execute(
       `SELECT id, name, surname FROM contacts WHERE id IN (${placeholders})`,
@@ -313,7 +289,6 @@ const deleteMultipleContacts = async (req, res) => {
       });
     }
     
-    // Toplu silme işlemi
     await promisePool.execute(
       `DELETE FROM contacts WHERE id IN (${placeholders})`,
       contactIds
@@ -335,12 +310,10 @@ const deleteMultipleContacts = async (req, res) => {
   }
 };
 
-// Kategorileri getir (contacts için)
 const getCategories = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     
-    // Tüm kullanıcıların kategorilerini getir
     const [rows] = await promisePool.execute(
       'SELECT DISTINCT category FROM contacts ORDER BY category'
     );
@@ -361,7 +334,6 @@ const getCategories = async (req, res) => {
   }
 };
 
-// Kategori listesini getir (categories sayfası için)
 const getCategoriesWithStats = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
@@ -371,12 +343,10 @@ const getCategoriesWithStats = async (req, res) => {
     const limit = parseInt(req.query.limit) || 14;
     const offset = (page - 1) * limit;
     
-    // Arama parametresi
     const search = req.query.search || '';
     
     console.log('Kategori isteği - userId:', userId, 'page:', page, 'limit:', limit, 'offset:', offset, 'search:', search);
     
-    // Arama koşulunu hazırla - Tüm kullanıcıların kategorilerini getir
     let whereCondition = '';
     let queryParams = [];
     
@@ -386,7 +356,6 @@ const getCategoriesWithStats = async (req, res) => {
       queryParams.push(searchPattern, searchPattern, searchPattern);
     }
     
-    // Categories tablosundan kategorileri ve kişi sayılarını getir (alt kategoriye göre) - Tüm kullanıcılardan
     const [rows] = await promisePool.execute(
       `SELECT 
          c.id,
@@ -410,7 +379,6 @@ const getCategoriesWithStats = async (req, res) => {
     console.log('İlk kategori örneği:', JSON.stringify(rows[0], null, 2));
     console.log('Alt kategori değeri backend:', rows[0]?.alt_kategori);
     
-    // Toplam kategori sayısını getir - Tüm kullanıcıların kategorilerinden
     let countQuery = 'SELECT COUNT(*) as total FROM categories';
     let countParams = [];
     
@@ -425,7 +393,6 @@ const getCategoriesWithStats = async (req, res) => {
     const total = countResult[0].total;
     console.log('Toplam kategori sayısı:', total);
     
-    // Sıra numarası ekle
     const categoriesWithSira = rows.map((category, index) => ({
       id: category.id,
       sira: index + 1 + offset,
@@ -455,12 +422,10 @@ const getCategoriesWithStats = async (req, res) => {
   }
 };
 
-// Dropdown için tüm kategorileri getir
 const getAllCategoriesForDropdown = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     
-    // Kategorileri al - Tüm kullanıcılardan
     const [rows] = await promisePool.execute(
       'SELECT id, name, alt_kategori FROM categories ORDER BY name'
     );
@@ -479,13 +444,11 @@ const getAllCategoriesForDropdown = async (req, res) => {
   }
 };
 
-// Kategori ekle
 const createCategory = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const { name, alt_kategori, description } = req.body;
     
-    // Zorunlu alanları kontrol et
     if (!name) {
       return res.status(400).json({
         success: false,
@@ -499,7 +462,6 @@ const createCategory = async (req, res) => {
       [userId, name, alt_kategori || '', description || '']
     );
     
-    // Eklenen kategoriyi getir
     const [newCategory] = await promisePool.execute(
       'SELECT * FROM categories WHERE id = ?',
       [result.insertId]
@@ -526,14 +488,12 @@ const createCategory = async (req, res) => {
   }
 };
 
-// Kategori güncelle
 const updateCategory = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const categoryId = req.params.id;
     const { name, alt_kategori, description } = req.body;
     
-    // Zorunlu alanları kontrol et
     if (!name) {
       return res.status(400).json({
         success: false,
@@ -541,7 +501,6 @@ const updateCategory = async (req, res) => {
       });
     }
     
-    // Kategorinin varlığını ve sahibini kontrol et
     const [existingCategory] = await promisePool.execute(
       'SELECT id FROM categories WHERE id = ? AND user_id = ?',
       [categoryId, userId]
@@ -561,7 +520,6 @@ const updateCategory = async (req, res) => {
       [name, alt_kategori || '', description || '', categoryId, userId]
     );
     
-    // Güncellenmiş kategoriyi getir
     const [updatedCategory] = await promisePool.execute(
       'SELECT * FROM categories WHERE id = ?',
       [categoryId]
@@ -588,14 +546,12 @@ const updateCategory = async (req, res) => {
   }
 };
 
-// Kategori sil
 const deleteCategory = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     const categoryId = req.params.id;
     const { targetCategoryId } = req.body || {};
     
-    // Kategorinin varlığını ve sahibini kontrol et
     const [existingCategory] = await promisePool.execute(
       'SELECT name, alt_kategori FROM categories WHERE id = ? AND user_id = ?',
       [categoryId, userId]
@@ -610,7 +566,6 @@ const deleteCategory = async (req, res) => {
     
     const altKategoriName = existingCategory[0].alt_kategori;
     
-    // Bu kategorideki kişi sayısını kontrol et
     const [contactCount] = await promisePool.execute(
       'SELECT COUNT(*) as count FROM contacts WHERE user_id = ? AND category = ?',
       [userId, altKategoriName]
@@ -619,9 +574,7 @@ const deleteCategory = async (req, res) => {
     let targetCategoryName = 'Kategori Yok';
     let moveMessage = 'Bu kategorideki kişiler "Kategori Yok" kategorisine taşındı.';
     
-    // Eğer kişi varsa ve hedef kategori belirtilmişse
     if (contactCount[0].count > 0 && targetCategoryId) {
-      // Hedef kategorinin varlığını kontrol et
       const [targetCategory] = await promisePool.execute(
         'SELECT alt_kategori FROM categories WHERE id = ? AND user_id = ?',
         [targetCategoryId, userId]
@@ -633,7 +586,6 @@ const deleteCategory = async (req, res) => {
       }
     }
     
-    // Kişileri hedef kategoriye taşı
     if (contactCount[0].count > 0) {
       await promisePool.execute(
         'UPDATE contacts SET category = ? WHERE user_id = ? AND category = ?',
@@ -641,7 +593,6 @@ const deleteCategory = async (req, res) => {
       );
     }
     
-    // Kategoriyi sil
     await promisePool.execute(
       'DELETE FROM categories WHERE id = ? AND user_id = ?',
       [categoryId, userId]
@@ -662,7 +613,6 @@ const deleteCategory = async (req, res) => {
   }
 };
 
-// Kişileri kategoriler arası taşı
 const moveContactsBetweenCategories = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
@@ -675,7 +625,6 @@ const moveContactsBetweenCategories = async (req, res) => {
       });
     }
     
-    // Kişileri taşı
     const [result] = await promisePool.execute(
       'UPDATE contacts SET category = ? WHERE user_id = ? AND category = ?',
       [toCategory, userId, fromCategory]
@@ -696,7 +645,6 @@ const moveContactsBetweenCategories = async (req, res) => {
   }
 };
 
-// TC Kimlik No kontrolü
 const checkTCExists = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
@@ -715,7 +663,6 @@ const checkTCExists = async (req, res) => {
     );
     
     if (rows.length > 0) {
-      // Avatar URL'ini tam URL'ye çevir
       const contact = {
         ...rows[0],
         avatar: rows[0].avatar && !rows[0].avatar.startsWith('http') 
@@ -746,7 +693,6 @@ const checkTCExists = async (req, res) => {
   }
 };
 
-// Kategorilere göre toplu SMS gönder
 const sendBulkSMSByCategories = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
@@ -760,7 +706,6 @@ const sendBulkSMSByCategories = async (req, res) => {
       sendingTitle
     });
     
-    // Gerekli alanları kontrol et
     if (!selectedCategories || !Array.isArray(selectedCategories) || selectedCategories.length === 0) {
       return res.status(400).json({
         success: false,
@@ -775,7 +720,6 @@ const sendBulkSMSByCategories = async (req, res) => {
       });
     }
     
-    // Seçilen kategorilerdeki kişileri getir
     const placeholders = selectedCategories.map(() => '?').join(',');
     const [contacts] = await promisePool.execute(
       `SELECT name, surname, phone1, phone2, category 
@@ -792,7 +736,6 @@ const sendBulkSMSByCategories = async (req, res) => {
       });
     }
     
-    // Telefon numaralarını topla (hem phone1 hem phone2)
     const phoneNumbers = [];
     const contactDetails = [];
     
@@ -808,7 +751,6 @@ const sendBulkSMSByCategories = async (req, res) => {
         });
       }
       
-      // İkinci telefon numarası (varsa)
       if (contact.phone2 && contact.phone2.trim() !== '') {
         phoneNumbers.push(contact.phone2);
         contactDetails.push({
@@ -823,7 +765,6 @@ const sendBulkSMSByCategories = async (req, res) => {
     console.log(`Toplam ${phoneNumbers.length} telefon numarasına SMS gönderilecek`);
     console.log(`${contacts.length} kişi, ${selectedCategories.length} kategori`);
     
-    // SMS servisini çağır
     const smsService = require('../services/smsService');
     const smsResult = await smsService.sendBulkSMS(phoneNumbers, message);
     
@@ -833,12 +774,10 @@ const sendBulkSMSByCategories = async (req, res) => {
       totalCount: phoneNumbers.length
     });
     
-    // SMS loglarını kaydet
     if (smsResult.success && smsResult.phones) {
       try {
         const db = require('../config/database');
         const logPromises = contactDetails.map(contact => {
-          // Sadece başarıyla gönderilen numaraları logla
           if (smsResult.phones.includes(contact.phone)) {
             return db.query(`
               INSERT INTO sms_logs (
@@ -871,7 +810,6 @@ const sendBulkSMSByCategories = async (req, res) => {
       }
     }
     
-    // Başarısız numaraları da logla
     if (!smsResult.success || smsResult.sentCount < phoneNumbers.length) {
       try {
         const db = require('../config/database');
@@ -910,7 +848,6 @@ const sendBulkSMSByCategories = async (req, res) => {
       }
     }
     
-    // Kategori bazında özet bilgi
     const categorySummary = selectedCategories.map(category => {
       const categoryContacts = contacts.filter(c => c.category === category);
       const categoryPhones = [];

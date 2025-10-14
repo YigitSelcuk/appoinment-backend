@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 
-// Admin: Yeni kullanıcı oluştur
 const createUser = async (req, res) => {
   try {
     const { 
@@ -24,7 +23,6 @@ const createUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'İsim, email ve şifre zorunludur' });
     }
 
-    // Email eşsiz mi?
     const [existing] = await db.execute('SELECT id FROM users WHERE email = ?', [email]);
     if (existing.length > 0) {
       return res.status(409).json({ success: false, message: 'Bu email zaten kayıtlı' });
@@ -59,7 +57,6 @@ const createUser = async (req, res) => {
   }
 };
 
-// Admin: Kullanıcı izinlerini güncelle
 const updateUserPermissions = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -92,7 +89,6 @@ const updateUserPermissions = async (req, res) => {
   }
 };
 
-// Tüm kullanıcıları getir
 const getUsers = async (req, res) => {
   try {
     const query = `
@@ -136,7 +132,6 @@ const getUsers = async (req, res) => {
   }
 };
 
-// Mevcut kullanıcının bilgilerini getir
 const getCurrentUser = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -191,7 +186,6 @@ const getCurrentUser = async (req, res) => {
   }
 };
 
-// Kullanıcı profilini getir
 const getUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -250,7 +244,6 @@ const getUserProfile = async (req, res) => {
   }
 };
 
-// Kullanıcı profilini güncelle
 const updateUserProfile = async (req, res) => {
   try {
     console.log('updateUserProfile çağrıldı');
@@ -261,7 +254,6 @@ const updateUserProfile = async (req, res) => {
     const userId = req.user.id;
     const { name, email, phone, address, bio, role, department, color, currentPassword, newPassword } = req.body;
 
-    // Mevcut kullanıcı bilgilerini al
     const [currentUser] = await db.execute(
       'SELECT * FROM users WHERE id = ?',
       [userId]
@@ -274,7 +266,6 @@ const updateUserProfile = async (req, res) => {
       });
     }
 
-    // Email değişikliği kontrolü
     if (email && email !== currentUser[0].email) {
       const [existingUser] = await db.execute(
         'SELECT id FROM users WHERE email = ? AND id != ?',
@@ -292,7 +283,6 @@ const updateUserProfile = async (req, res) => {
     let updateFields = [];
     let updateValues = [];
 
-    // Güncelleme alanlarını hazırla
     if (name) {
       updateFields.push('name = ?');
       updateValues.push(name);
@@ -326,7 +316,6 @@ const updateUserProfile = async (req, res) => {
       updateValues.push(color);
     }
 
-    // Şifre değişikliği kontrolü
     if (newPassword) {
       if (!currentPassword) {
         return res.status(400).json({
@@ -335,7 +324,6 @@ const updateUserProfile = async (req, res) => {
         });
       }
 
-      // Mevcut şifreyi kontrol et
       const isCurrentPasswordValid = await bcrypt.compare(currentPassword, currentUser[0].password);
       if (!isCurrentPasswordValid) {
         return res.status(400).json({
@@ -344,16 +332,13 @@ const updateUserProfile = async (req, res) => {
         });
       }
 
-      // Yeni şifreyi hashle
       const hashedNewPassword = await bcrypt.hash(newPassword, 10);
       updateFields.push('password = ?');
       updateValues.push(hashedNewPassword);
     }
 
-    // Avatar güncelleme
     if (req.file) {
       console.log('Avatar dosyası yüklendi:', req.file.filename);
-      // Eski avatar'ı sil
       if (currentUser[0].avatar) {
         const oldAvatarPath = path.join(__dirname, '../uploads/avatars', currentUser[0].avatar);
         if (fs.existsSync(oldAvatarPath)) {
@@ -382,7 +367,6 @@ const updateUserProfile = async (req, res) => {
 
     await db.execute(updateQuery, updateValues);
 
-    // Güncellenmiş kullanıcı bilgilerini getir
     const [updatedUser] = await db.execute(
       `SELECT id, name, email, avatar, role, phone, address, bio, department, color, permissions, is_online, last_seen, created_at, updated_at 
        FROM users WHERE id = ?`,
@@ -410,7 +394,6 @@ const updateUserProfile = async (req, res) => {
     console.error('Profil güncellenirken hata:', error);
     console.error('Error stack:', error.stack);
     
-    // Multer hatalarını özel olarak yakala
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
@@ -440,7 +423,6 @@ const updateUserProfile = async (req, res) => {
   }
 };
 
-// Kullanıcının online durumunu kontrol et
 const getUserOnlineStatus = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -482,13 +464,11 @@ const getUserOnlineStatus = async (req, res) => {
   }
 };
 
-// Admin: Kullanıcı güncelle
 const updateUser = async (req, res) => {
   try {
     const userId = req.params.id;
     const { name, email, phone, address, bio, department, permissions, role, color } = req.body;
 
-    // Kullanıcının var olup olmadığını kontrol et
     const [existingUser] = await db.execute(
       'SELECT * FROM users WHERE id = ?',
       [userId]
@@ -501,7 +481,6 @@ const updateUser = async (req, res) => {
       });
     }
 
-    // Email benzersizlik kontrolü (kendisi hariç)
     if (email && email !== existingUser[0].email) {
       const [emailCheck] = await db.execute(
         'SELECT id FROM users WHERE email = ? AND id != ?',
@@ -516,7 +495,6 @@ const updateUser = async (req, res) => {
       }
     }
 
-    // Güncelleme alanlarını hazırla
     const updateFields = [];
     const updateValues = [];
 
@@ -566,7 +544,6 @@ const updateUser = async (req, res) => {
 
     updateValues.push(userId);
 
-    // Kullanıcıyı güncelle
     const updateQuery = `
       UPDATE users 
       SET ${updateFields.join(', ')}, updated_at = NOW()
@@ -575,7 +552,6 @@ const updateUser = async (req, res) => {
 
     await db.execute(updateQuery, updateValues);
 
-    // Güncellenmiş kullanıcı bilgilerini getir
     const [updatedUser] = await db.execute(
       `SELECT id, name, email, avatar, role, phone, address, bio, department, color, permissions, created_at 
        FROM users WHERE id = ?`,
@@ -607,13 +583,11 @@ const updateUser = async (req, res) => {
   }
 };
 
-// Admin: Kullanıcı sil
 const deleteUser = async (req, res) => {
   try {
     const userId = req.params.id;
     const currentUserId = req.user.id;
     
-    // Kendi kendini silmeye izin verme
     if (parseInt(userId) === parseInt(currentUserId)) {
       return res.status(400).json({
         success: false,
@@ -621,7 +595,6 @@ const deleteUser = async (req, res) => {
       });
     }
 
-    // Kullanıcının var olup olmadığını kontrol et
     const [existingUser] = await db.execute(
       'SELECT id, name, email FROM users WHERE id = ?',
       [userId]
@@ -634,7 +607,6 @@ const deleteUser = async (req, res) => {
       });
     }
 
-    // Kullanıcıyı sil
     await db.execute('DELETE FROM users WHERE id = ?', [userId]);
 
     res.json({
@@ -655,13 +627,11 @@ const deleteUser = async (req, res) => {
   }
 };
 
-// Admin: Toplu kullanıcı silme
 const deleteMultipleUsers = async (req, res) => {
   try {
     const { userIds } = req.body;
     const currentUserId = req.user.id;
 
-    // userIds array kontrolü
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
       return res.status(400).json({
         success: false,
@@ -669,7 +639,6 @@ const deleteMultipleUsers = async (req, res) => {
       });
     }
 
-    // Kendi kendini silmeye izin verme
     if (userIds.includes(currentUserId)) {
       return res.status(400).json({
         success: false,
@@ -677,7 +646,6 @@ const deleteMultipleUsers = async (req, res) => {
       });
     }
 
-    // Kullanıcıların var olup olmadığını kontrol et
     const placeholders = userIds.map(() => '?').join(',');
     const [existingUsers] = await db.execute(
       `SELECT id, name, email FROM users WHERE id IN (${placeholders})`,
@@ -691,7 +659,6 @@ const deleteMultipleUsers = async (req, res) => {
       });
     }
 
-    // Toplu silme işlemi
     await db.execute(
       `DELETE FROM users WHERE id IN (${placeholders})`,
       userIds
@@ -714,7 +681,6 @@ const deleteMultipleUsers = async (req, res) => {
   }
 };
 
-// Tekrarsız department listesini getir
 const getDepartments = async (req, res) => {
   try {
     const [departments] = await db.execute(`

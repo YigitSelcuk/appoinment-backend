@@ -1,17 +1,14 @@
 const db = require('../config/database');
 
 const rehberController = {
-  // Get rehber statistics
   getRehberStats: async (req, res) => {
     try {
-      // Toplam kişi sayısını al
       const [totalContactsResult] = await db.execute(
         'SELECT COUNT(*) as total_count FROM contacts'
       );
       
       const totalContacts = totalContactsResult[0].total_count || 0;
       
-      // Son 7 günlük kişi ekleme istatistikleri
       const query = `
         SELECT 
           DATE_FORMAT(created_at, '%Y-%m-%d') as date,
@@ -28,7 +25,6 @@ const rehberController = {
       
       const [results] = await db.execute(query);
       
-      // Son 7 günün verilerini hazırla (veri yoksa 0 ile doldur)
       const today = new Date();
       const chartData = [];
       
@@ -47,7 +43,6 @@ const rehberController = {
         });
       }
       
-      // Eğer hiç veri yoksa boş veri döndür
        if (totalContacts === 0) {
          const emptyData = [];
          for (let i = 6; i >= 0; i--) {
@@ -76,7 +71,6 @@ const rehberController = {
     } catch (error) {
       console.error('Rehber istatistikleri alınırken hata:', error);
       
-      // Hata durumunda boş veri döndür
       const emptyData = [];
       for (let i = 6; i >= 0; i--) {
         emptyData.push({

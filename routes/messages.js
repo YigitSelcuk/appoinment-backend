@@ -3,7 +3,6 @@ const router = express.Router();
 const smsController = require('../controllers/smsController');
 const { authenticateToken } = require('../middleware/security');
 
-// SMS Mesajları - Bana Özel SMS Sistemi
 // SMS geçmişini getir (sayfalama ve filtreleme ile)
 router.get('/', authenticateToken, smsController.getSMSHistory);
 

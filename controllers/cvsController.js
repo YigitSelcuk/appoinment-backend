@@ -5,7 +5,6 @@ const fs = require('fs');
 const { logActivity } = require('./activitiesController');
 const { createNotification } = require('./notificationsController');
 
-// Tüm CV'leri getir (sayfalama ve filtreleme ile)
 const getCVs = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -16,7 +15,6 @@ const getCVs = async (req, res) => {
     const position = req.query.position || '';
     const user_id = req.user.id;
 
-    // Toplam kayıt sayısını al (tüm CV'ler)
     let countQuery = `
       SELECT COUNT(*) as total 
       FROM cvs 
@@ -43,7 +41,6 @@ const getCVs = async (req, res) => {
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
-    // Ana sorgu (tüm CV'ler) - Users tablosu ile join
     let query = `
       SELECT 
         c.id,
@@ -113,7 +110,6 @@ const getCVs = async (req, res) => {
   }
 };
 
-// CV detayını getir
 const getCVById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -134,7 +130,6 @@ const getCVById = async (req, res) => {
       });
     }
 
-    // Aktivite kaydı oluştur
     await logActivity(
       req.user.id,
       req.user.name || req.user.username || 'Bilinmeyen Kullanıcı',
@@ -163,7 +158,6 @@ const getCVById = async (req, res) => {
   }
 };
 
-// Yeni CV ekle
 const createCV = async (req, res) => {
   try {
     console.log('=== CV EKLEME İSTEĞİ ===');
@@ -172,7 +166,6 @@ const createCV = async (req, res) => {
   console.log('req.user:', req.user);
   console.log('req.headers["content-type"]:', req.headers['content-type']);
   
-  // FormData alanlarını kontrol et
   console.log('FormData alanları:');
   for (const [key, value] of Object.entries(req.body)) {
     console.log(`${key}: ${value}`);
@@ -198,18 +191,14 @@ const createCV = async (req, res) => {
     } = req.body;
     const user_id = req.user.id;
     
-    // CV dosyaları - birden fazla dosya JSON array olarak saklanacak
     let cv_dosyasi = null;
     if (req.files && req.files['cv_dosyasi'] && req.files['cv_dosyasi'].length > 0) {
-      // Tüm dosyaları JSON array olarak kaydet
       const dosyaListesi = req.files['cv_dosyasi'].map(f => f.filename);
       cv_dosyasi = JSON.stringify(dosyaListesi);
       
-      // Tüm dosya isimlerini loglayalım
       console.log('Yüklenen CV dosyaları JSON:', cv_dosyasi);
     }
     
-    // Profil resmi: contact avatar, varolan dosya adı veya yeni yüklenen dosya
     let profil_resmi = null;
     if (contact_avatar) {
       profil_resmi = contact_avatar;
@@ -258,13 +247,11 @@ const createCV = async (req, res) => {
       ]
     );
 
-    // Oluşturulan CV'yi getir
     const [newCV] = await promisePool.execute(
       'SELECT * FROM cvs WHERE id = ?',
       [result.insertId]
     );
 
-    // Aktivite kaydı oluştur
     await logActivity(
       req.user.id,
       req.user.name || req.user.username || 'Bilinmeyen Kullanıcı',
@@ -279,7 +266,6 @@ const createCV = async (req, res) => {
       req.get('User-Agent')
     );
 
-    // Bildirim oluştur
     try {
       await createNotification(
         user_id,
@@ -292,7 +278,6 @@ const createCV = async (req, res) => {
       console.log('CV ekleme bildirimi oluşturuldu');
     } catch (notificationError) {
       console.error('Bildirim oluşturma hatası:', notificationError);
-      // Bildirim hatası CV ekleme işlemini etkilemez
     }
 
     res.status(201).json({
@@ -310,7 +295,6 @@ const createCV = async (req, res) => {
   }
 };
 
-// CV güncelle
 const updateCV = async (req, res) => {
   try {
     const { id } = req.params;
@@ -332,17 +316,14 @@ const updateCV = async (req, res) => {
     } = req.body;
     const user_id = req.user.id;
     
-    // CV dosyaları - birden fazla dosya JSON array olarak saklanacak
     let cv_dosyasi = null;
     if (req.files && req.files['cv_dosyasi'] && req.files['cv_dosyasi'].length > 0) {
-      // Tüm dosyaları JSON array olarak kaydet
       const dosyaListesi = req.files['cv_dosyasi'].map(f => f.filename);
       cv_dosyasi = JSON.stringify(dosyaListesi);
     }
     
     const profil_resmi = req.files && req.files['profil_resmi'] && req.files['profil_resmi'][0] ? req.files['profil_resmi'][0].filename : null;
 
-    // CV'nin varlığını ve sahipliğini kontrol et
     const [existingCV] = await promisePool.execute(
       'SELECT * FROM cvs WHERE id = ? AND user_id = ?',
       [id, user_id]
@@ -355,7 +336,6 @@ const updateCV = async (req, res) => {
       });
     }
 
-    // Güncelleme sorgusu
     let updateQuery = `
       UPDATE cvs SET 
         tc_kimlik_no = ?, kayit_tarihi = ?, adi = ?, soyadi = ?, ilce = ?, mahalle = ?, adres = ?,
@@ -393,13 +373,11 @@ const updateCV = async (req, res) => {
 
     await promisePool.execute(updateQuery, updateParams);
 
-    // Güncellenmiş CV'yi getir
     const [updatedCV] = await promisePool.execute(
       'SELECT * FROM cvs WHERE id = ?',
       [id]
     );
 
-    // Aktivite kaydı oluştur
     await logActivity(
       req.user.id,
       req.user.name || req.user.username || 'Bilinmeyen Kullanıcı',
@@ -429,13 +407,11 @@ const updateCV = async (req, res) => {
   }
 };
 
-// CV sil
 const deleteCV = async (req, res) => {
   try {
     const { id } = req.params;
     const user_id = req.user.id;
 
-    // CV'nin varlığını ve sahipliğini kontrol et
     const [existingCV] = await promisePool.execute(
       'SELECT * FROM cvs WHERE id = ? AND user_id = ?',
       [id, user_id]
@@ -448,13 +424,11 @@ const deleteCV = async (req, res) => {
       });
     }
 
-    // CV'yi sil
     await promisePool.execute(
       'DELETE FROM cvs WHERE id = ? AND user_id = ?',
       [id, user_id]
     );
 
-    // Aktivite kaydı oluştur
     await logActivity(
       req.user.id,
       req.user.name || req.user.username || 'Bilinmeyen Kullanıcı',
@@ -483,13 +457,11 @@ const deleteCV = async (req, res) => {
   }
 };
 
-// Toplu CV silme
 const deleteMultipleCVs = async (req, res) => {
   try {
     const { cvIds } = req.body;
     const user_id = req.user.id;
 
-    // Giriş validasyonu
     if (!cvIds || !Array.isArray(cvIds) || cvIds.length === 0) {
       return res.status(400).json({
         success: false,
@@ -497,7 +469,6 @@ const deleteMultipleCVs = async (req, res) => {
       });
     }
 
-    // CV'lerin varlığını ve sahipliğini kontrol et
     const placeholders = cvIds.map(() => '?').join(',');
     const [existingCVs] = await promisePool.execute(
       `SELECT * FROM cvs WHERE id IN (${placeholders}) AND user_id = ?`,
@@ -518,13 +489,11 @@ const deleteMultipleCVs = async (req, res) => {
       });
     }
 
-    // CV'leri toplu olarak sil
     await promisePool.execute(
       `DELETE FROM cvs WHERE id IN (${placeholders}) AND user_id = ?`,
       [...cvIds, user_id]
     );
 
-    // Her CV için aktivite kaydı oluştur
     for (const cv of existingCVs) {
       await logActivity(
         req.user.id,
@@ -556,7 +525,6 @@ const deleteMultipleCVs = async (req, res) => {
   }
 };
 
-// Durum listesini getir
 const getStatuses = async (req, res) => {
   try {
     const statuses = [
@@ -581,13 +549,11 @@ const getStatuses = async (req, res) => {
   }
 };
 
-// CV dosyası indir
 const downloadCVFile = async (req, res) => {
   try {
     const { filename } = req.params;
     const user_id = req.user.id;
 
-    // Dosya adından CV'yi bul - JSON array içinde arama yap
     const [cvs] = await promisePool.execute(
       'SELECT * FROM cvs WHERE JSON_SEARCH(cv_dosyasi, \'one\', ?) IS NOT NULL OR cv_dosyasi = ?',
       [filename, filename]
@@ -600,10 +566,8 @@ const downloadCVFile = async (req, res) => {
       });
     }
 
-    // Dosya yolunu oluştur
     const filePath = path.join(__dirname, '../uploads/cvs', filename);
 
-    // Dosyanın varlığını kontrol et
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         success: false,
@@ -611,7 +575,6 @@ const downloadCVFile = async (req, res) => {
       });
     }
 
-    // Aktivite kaydı oluştur
     await logActivity(
       req.user.id,
       req.user.name || req.user.username || 'Bilinmeyen Kullanıcı',
@@ -626,7 +589,6 @@ const downloadCVFile = async (req, res) => {
       req.get('User-Agent')
     );
 
-    // Dosyayı indir
     res.download(filePath, filename, (err) => {
       if (err) {
         console.error('Dosya indirme hatası:', err);
@@ -646,7 +608,6 @@ const downloadCVFile = async (req, res) => {
   }
 };
 
-// Profil resmi görüntüle
 const getProfileImage = async (req, res) => {
   try {
     const { filename } = req.params;
@@ -654,7 +615,6 @@ const getProfileImage = async (req, res) => {
 
     console.log('Profil resmi isteniyor:', filename);
 
-    // Önce CV'lerde ara (tüm CV'lere erişim)
     const [cvs] = await promisePool.execute(
       'SELECT * FROM cvs WHERE profil_resmi = ?',
       [filename]
@@ -665,13 +625,10 @@ const getProfileImage = async (req, res) => {
     let recordId;
 
     if (cvs.length > 0) {
-      // CV profil resmi bulundu
       filePath = path.join(__dirname, '../uploads/cvs', filename);
       activityMessage = `CV profil resmi görüntülendi: ${cvs[0].adi} ${cvs[0].soyadi} - ${filename}`;
       recordId = cvs[0].id;
     } else {
-      // CV'de bulunamadı, contact avatar'ı olabilir
-      // Avatar dosyaları için kontrol et
       if (filename.startsWith('avatar_')) {
         filePath = path.join(__dirname, '../uploads/avatars', filename);
         activityMessage = `Contact avatar görüntülendi: ${filename}`;
@@ -684,7 +641,6 @@ const getProfileImage = async (req, res) => {
       }
     }
 
-    // Dosyanın varlığını kontrol et
     if (!fs.existsSync(filePath)) {
       console.log('Dosya bulunamadı:', filePath);
       return res.status(404).json({
@@ -693,7 +649,6 @@ const getProfileImage = async (req, res) => {
       });
     }
 
-    // Aktivite kaydı oluştur
     await logActivity(
       req.user.id,
       req.user.name || req.user.username || 'Bilinmeyen Kullanıcı',
@@ -709,7 +664,6 @@ const getProfileImage = async (req, res) => {
     );
 
     console.log('Dosya gönderiliyor:', filePath);
-    // Resmi gönder
     res.sendFile(filePath);
   } catch (error) {
     console.error('Profil resmi görüntüleme hatası:', error);

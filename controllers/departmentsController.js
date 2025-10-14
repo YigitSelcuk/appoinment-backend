@@ -1,6 +1,5 @@
 const { promisePool: db } = require('../config/database');
 
-// Tüm departmanları getir
 const getAllDepartments = async (req, res) => {
   try {
     const [departments] = await db.execute(
@@ -21,7 +20,6 @@ const getAllDepartments = async (req, res) => {
   }
 };
 
-// Yeni departman ekle
 const createDepartment = async (req, res) => {
   try {
     const { name, description } = req.body;
@@ -33,7 +31,6 @@ const createDepartment = async (req, res) => {
       });
     }
 
-    // Aynı isimde departman var mı kontrol et
     const [existing] = await db.execute(
       'SELECT id FROM departments WHERE name = ?',
       [name.trim()]
@@ -71,7 +68,6 @@ const createDepartment = async (req, res) => {
   }
 };
 
-// Departman güncelle
 const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -84,7 +80,6 @@ const updateDepartment = async (req, res) => {
       });
     }
 
-    // Departman var mı kontrol et
     const [existing] = await db.execute(
       'SELECT id FROM departments WHERE id = ?',
       [id]
@@ -97,7 +92,6 @@ const updateDepartment = async (req, res) => {
       });
     }
 
-    // Aynı isimde başka departman var mı kontrol et
     const [nameCheck] = await db.execute(
       'SELECT id FROM departments WHERE name = ? AND id != ?',
       [name.trim(), id]
@@ -135,12 +129,10 @@ const updateDepartment = async (req, res) => {
   }
 };
 
-// Departman sil (soft delete)
 const deleteDepartment = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Departman var mı kontrol et
     const [existing] = await db.execute(
       'SELECT id, name FROM departments WHERE id = ?',
       [id]
@@ -153,7 +145,6 @@ const deleteDepartment = async (req, res) => {
       });
     }
 
-    // Bu departmana ait kullanıcı var mı kontrol et
     const [users] = await db.execute(
       'SELECT COUNT(*) as count FROM users WHERE department = ?',
       [existing[0].name]
@@ -166,7 +157,6 @@ const deleteDepartment = async (req, res) => {
       });
     }
 
-    // Soft delete
     await db.execute(
       'UPDATE departments SET is_active = 0 WHERE id = ?',
       [id]
@@ -186,7 +176,6 @@ const deleteDepartment = async (req, res) => {
   }
 };
 
-// Tek departman getir
 const getDepartmentById = async (req, res) => {
   try {
     const { id } = req.params;

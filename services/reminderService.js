@@ -74,7 +74,6 @@ class ReminderService {
       console.log(`⏰ Hatırlatma zamanı (+3 saat): ${reminderTimeWithTimezone.toLocaleString('tr-TR')}`);
       console.log(`⏰ Hatırlatma zamanı (DB string): ${reminderTimeForDB}`);
       
-      // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
       const currentTime = new Date();
       if (reminderTimeWithTimezone <= currentTime) {
         console.log(`⚠️ Hatırlatma zamanı geçmiş, kaydetmiyorum. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTimeWithTimezone.toLocaleString('tr-TR')}`);
@@ -124,7 +123,6 @@ class ReminderService {
       const now = new Date();
       console.log(`🔍 Hatırlatma kontrolü: ${now.toLocaleString('tr-TR')}`);
       
-      // Türkiye saati için +3 saat ekle (UTC+3)
       const nowWithTimezone = new Date(now.getTime() + (3 * 60 * 60 * 1000));
       const nowForDB = nowWithTimezone.getFullYear() + '-' + 
         String(nowWithTimezone.getMonth() + 1).padStart(2, '0') + '-' + 
@@ -156,7 +154,6 @@ class ReminderService {
       console.log(`📬 ${reminders.length} hatırlatma gönderilecek`);
       
       for (const reminder of reminders) {
-        // Çift kontrol: Randevu iptal edilmişse hatırlatmayı iptal et
         if (reminder.appointment_status === 'CANCELLED') {
           console.log(`⚠️ Randevu iptal edilmiş, hatırlatma iptal ediliyor: ${reminder.appointment_id}`);
           await db.execute(
@@ -178,7 +175,6 @@ class ReminderService {
     try {
       console.log(`📤 Hatırlatma gönderiliyor: ${reminder.title} (ID: ${reminder.id})`);
       
-      // Durumu 'pending' yap (çift gönderim önleme)
       const [updateResult] = await db.execute(
         'UPDATE appointment_reminders SET status = "pending", updated_at = NOW() WHERE id = ? AND status = "scheduled"',
         [reminder.id]
@@ -192,7 +188,6 @@ class ReminderService {
       let success = true;
       const errors = [];
       
-      // E-posta gönder
       if (reminder.creator_email && reminder.notification_email) {
         try {
           await this.sendEmailReminder(reminder);
@@ -204,7 +199,6 @@ class ReminderService {
         }
       }
       
-      // SMS gönder
       if (reminder.creator_phone && reminder.notification_sms) {
         try {
           await this.sendSMSReminder(reminder);
@@ -216,7 +210,6 @@ class ReminderService {
         }
       }
       
-      // Uygulama içi bildirim
       try {
         await this.sendInAppNotification(reminder);
         console.log(`✅ Uygulama içi bildirim gönderildi: ${reminder.user_id}`);
@@ -226,7 +219,6 @@ class ReminderService {
         success = false;
       }
       
-      // Katılımcılara gönder
       try {
         await this.sendToParticipants(reminder);
         console.log('✅ Katılımcılara gönderildi');
@@ -236,7 +228,6 @@ class ReminderService {
         success = false;
       }
       
-      // Final durumu güncelle
       const finalStatus = success ? 'sent' : 'failed';
       await db.execute(
         'UPDATE appointment_reminders SET status = ?, sent_at = NOW(), updated_at = NOW() WHERE id = ?',
@@ -264,7 +255,6 @@ class ReminderService {
     }
   }
 
-  // E-posta hatırlatması gönder
   async sendEmailReminder(reminder) {
     const appointmentData = {
       title: reminder.title,
@@ -282,9 +272,7 @@ class ReminderService {
     );
   }
 
-  // SMS hatırlatması gönder
   async sendSMSReminder(reminder) {
-    // Kısa ve etkili mesaj formatı (banaozel sistemine uygun)
     const dateStr = reminder.date.toISOString().split('T')[0];
     const timeStr = reminder.start_time.substring(0, 5); // HH:MM formatı
     
@@ -300,7 +288,6 @@ class ReminderService {
     return result;
   }
 
-  // Uygulama içi bildirim gönder
   async sendInAppNotification(reminder) {
     await notificationsController.createNotification(
       reminder.user_id,
@@ -312,9 +299,7 @@ class ReminderService {
     );
   }
 
-  // Katılımcılara hatırlatma gönder (tek tablo sistemi)
   async sendToParticipants(reminder) {
-    // Randevu bilgilerini al ve JSON alanlarını parse et
     const [appointments] = await db.execute(
       'SELECT invitees, visible_to_users FROM appointments WHERE id = ?',
       [reminder.appointment_id]
@@ -327,11 +312,9 @@ class ReminderService {
 
     const appointment = appointments[0];
     
-    // Invitees JSON'ını parse et
     let invitees = [];
     try {
       if (appointment.invitees) {
-        // Eğer zaten obje/array ise direkt kullan, string ise parse et
         invitees = typeof appointment.invitees === 'string' 
           ? JSON.parse(appointment.invitees) 
           : appointment.invitees;
@@ -341,9 +324,7 @@ class ReminderService {
       invitees = [];
     }
 
-    // Davetlilere gönder
     for (const invitee of invitees) {
-      // E-posta gönder (sadece e-posta bildirimi aktifse)
       if (invitee.email && reminder.notification_email) {
         try {
           await this.sendEmailReminder({...reminder, creator_email: invitee.email, creator_name: invitee.name});
@@ -352,7 +333,6 @@ class ReminderService {
         }
       }
       
-      // SMS gönder (sadece SMS bildirimi aktifse) 
       if (invitee.phone && reminder.notification_sms) {
         try {
           await this.sendSMSReminder({...reminder, creator_phone: invitee.phone, creator_name: invitee.name});
@@ -362,11 +342,9 @@ class ReminderService {
       }
     }
 
-    // Görünürlük kullanıcılarına gönder
     let visibleUsers = [];
     try {
       if (appointment.visible_to_users) {
-        // Eğer zaten obje/array ise direkt kullan, string ise parse et
         visibleUsers = typeof appointment.visible_to_users === 'string' 
           ? JSON.parse(appointment.visible_to_users) 
           : appointment.visible_to_users;
@@ -377,7 +355,6 @@ class ReminderService {
     }
 
     for (const user of visibleUsers) {
-      // E-posta gönder (sadece e-posta bildirimi aktifse)
       if (user.email && reminder.notification_email) {
         try {
           await this.sendEmailReminder({...reminder, creator_email: user.email, creator_name: user.name});
@@ -386,7 +363,6 @@ class ReminderService {
         }
       }
       
-      // SMS gönder (sadece SMS bildirimi aktifse)
       if (user.phone && reminder.notification_sms) {
         try {
           await this.sendSMSReminder({...reminder, creator_phone: user.phone, creator_name: user.name});
@@ -395,7 +371,6 @@ class ReminderService {
         }
       }
       
-      // Uygulama içi bildirim
       if (user.id) {
         try {
           await this.sendInAppNotification({...reminder, user_id: user.id});
@@ -406,7 +381,6 @@ class ReminderService {
     }
   }
 
-  // Hatırlatmayı iptal et
   async cancelReminder(appointmentId) {
     try {
       const [result] = await db.execute(
@@ -426,5 +400,4 @@ class ReminderService {
   }
 }
 
-// Singleton instance export et
 module.exports = new ReminderService();

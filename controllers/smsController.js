@@ -1,11 +1,6 @@
 const { promisePool: db } = require('../config/database');
 const smsService = require('../services/smsService');
 
-/**
- * SMS Controller - PHP banaozelSmsGonder mantığını kullanan SMS işlemleri
- */
-
-// SMS konfigürasyon bilgilerini getir
 exports.getSMSConfig = async (req, res) => {
   try {
     console.log('📋 SMS konfigürasyon bilgileri isteniyor...');
@@ -32,7 +27,6 @@ exports.getSMSConfig = async (req, res) => {
   }
 };
 
-// Tekli SMS gönder - PHP banaozelSmsGonder mantığı
 exports.sendSMS = async (req, res) => {
   try {
     const { phone, phoneNumber, message } = req.body;
@@ -44,7 +38,6 @@ exports.sendSMS = async (req, res) => {
       userId: req.user?.id
     });
 
-    // Validasyon
     if (!targetPhone || !message) {
       console.error('❌ Eksik parametreler:', { 
         phone: !!targetPhone, 
@@ -56,7 +49,6 @@ exports.sendSMS = async (req, res) => {
       });
     }
 
-    // SMS geçmişine kaydet
     let messageId = null;
     try {
       const insertQuery = `
@@ -77,7 +69,6 @@ exports.sendSMS = async (req, res) => {
       console.log('⚠️ Veritabanı kayıt hatası (devam ediliyor):', dbError.message);
     }
 
-    // PHP banaozelSmsGonder fonksiyonunu çağır
     const smsResult = await smsService.sendSMS(targetPhone, message);
     
     console.log('📡 SMS gönderim sonucu:', {
@@ -86,7 +77,6 @@ exports.sendSMS = async (req, res) => {
       error: smsResult.error || 'yok'
     });
 
-    // Veritabanı durumunu güncelle
     if (messageId) {
       try {
         const status = smsResult.success ? 'sent' : 'failed';
@@ -105,7 +95,6 @@ exports.sendSMS = async (req, res) => {
       }
     }
 
-    // PHP'deki return mantığına uygun response
     if (smsResult.success) {
       console.log('✅ SMS başarıyla gönderildi');
       res.json({
@@ -145,7 +134,6 @@ exports.sendSMS = async (req, res) => {
   }
 };
 
-// Toplu SMS gönder - PHP mantığına uygun
 exports.sendBulkSMS = async (req, res) => {
   try {
     const { phones, message } = req.body;
@@ -156,7 +144,6 @@ exports.sendBulkSMS = async (req, res) => {
       userId: req.user?.id
     });
 
-    // Validasyon
     if (!phones || !Array.isArray(phones) || phones.length === 0 || !message) {
       return res.status(400).json({
         success: false,
@@ -168,12 +155,10 @@ exports.sendBulkSMS = async (req, res) => {
     let successCount = 0;
     let failureCount = 0;
 
-    // PHP'deki gibi her telefon için ayrı ayrı gönder
     for (const phone of phones) {
       try {
         console.log(`📱 SMS gönderiliyor: ${phone}`);
         
-        // Veritabanına kaydet
         let messageId = null;
         try {
           const insertQuery = `
@@ -193,10 +178,8 @@ exports.sendBulkSMS = async (req, res) => {
           console.log(`⚠️ ${phone} için veritabanı kayıt hatası:`, dbError.message);
         }
 
-        // PHP banaozelSmsGonder fonksiyonunu çağır
         const smsResult = await smsService.sendSMS(phone, message);
         
-        // Durumu güncelle
         if (messageId) {
           try {
             const status = smsResult.success ? 'sent' : 'failed';
@@ -215,7 +198,6 @@ exports.sendBulkSMS = async (req, res) => {
           }
         }
 
-        // Sonucu kaydet
         results.push({
           phone: phone,
           status: smsResult.success ? 'sent' : 'failed',
@@ -232,7 +214,6 @@ exports.sendBulkSMS = async (req, res) => {
           console.log(`❌ ${phone}: ${smsResult.error}`);
         }
 
-        // Rate limiting - PHP'de yok ama güvenlik için
         await new Promise(resolve => setTimeout(resolve, 100));
 
       } catch (error) {
@@ -250,7 +231,6 @@ exports.sendBulkSMS = async (req, res) => {
 
     console.log(`📊 Toplu SMS tamamlandı: ${successCount} başarılı, ${failureCount} başarısız`);
 
-    // PHP'deki return mantığına uygun response
     res.json({
       success: true,
       message: `Toplu SMS tamamlandı: ${successCount} başarılı, ${failureCount} başarısız`,
@@ -278,7 +258,6 @@ exports.sendBulkSMS = async (req, res) => {
   }
 };
 
-// SMS geçmişini getir
 exports.getSMSHistory = async (req, res) => {
   try {
     const { page = 1, limit = 50, status, phone } = req.query;
@@ -299,12 +278,10 @@ exports.getSMSHistory = async (req, res) => {
        queryParams.push(`%${phone}%`);
      }
 
-     // Toplam kayıt sayısı
      const countQuery = `SELECT COUNT(*) as total FROM sms_logs ${whereClause}`;
      const [countResult] = await db.query(countQuery, queryParams);
      const total = countResult[0].total;
 
-     // SMS geçmişi
      const historyQuery = `
        SELECT id, phone_number, message, list_name, sending_title, contact_name, contact_category, status, error_message, created_at, sent_at
        FROM sms_logs 
@@ -340,12 +317,10 @@ exports.getSMSHistory = async (req, res) => {
   }
 };
 
-// SMS istatistikleri
 exports.getSMSStats = async (req, res) => {
   try {
     console.log('📊 SMS istatistikleri isteniyor...');
 
-    // Bugünkü istatistikler
      const todayQuery = `
        SELECT 
          COUNT(*) as total,
@@ -359,7 +334,6 @@ exports.getSMSStats = async (req, res) => {
     const [todayResult] = await db.query(todayQuery);
     const todayStats = todayResult[0];
 
-    // Bu ayki istatistikler
      const monthQuery = `
        SELECT 
          COUNT(*) as total,
@@ -373,7 +347,6 @@ exports.getSMSStats = async (req, res) => {
     const [monthResult] = await db.query(monthQuery);
     const monthStats = monthResult[0];
 
-    // Toplam istatistikler
      const totalQuery = `
        SELECT 
          COUNT(*) as total,
@@ -424,14 +397,12 @@ exports.getSMSStats = async (req, res) => {
   }
 };
 
-// SMS test fonksiyonu
 exports.testSMS = async (req, res) => {
   try {
     const { phone = '5551234567', message = 'Test mesajı - Bana Özel SMS Sistemi' } = req.body;
 
     console.log('🧪 SMS test ediliyor:', { phone, messageLength: message.length });
 
-    // Test SMS'i gönder
     const smsResult = await smsService.sendSMS(phone, message);
     
     console.log('🧪 Test SMS sonucu:', smsResult);

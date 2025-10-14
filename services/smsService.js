@@ -2,16 +2,15 @@ const soap = require('soap');
 const xml2js = require('xml2js');
 require('dotenv').config();
 
-// .env dosyasından SMS ayarları
-const SMS_URL = process.env.SMS_URL || 'https://smsservice.sultangazi.bel.tr/SmsProxy.asmx?WSDL';
-const SMS_USERNAME = process.env.SMS_USERNAME || 'empati.api';
-const SMS_PASSWORD = process.env.SMS_PASSWORD || 'sltnsms2019*';
-const SMS_USER_CODE = parseInt(process.env.SMS_USER_CODE) || 6;
-const SMS_ACCOUNT_ID = parseInt(process.env.SMS_ACCOUNT_ID) || 1;
-const SMS_ORIGINATOR = process.env.SMS_ORIGINATOR || 'SULTANGZBLD';
-const SMS_VALIDITY_PERIOD = parseInt(process.env.SMS_VALIDITY_PERIOD) || 60;
-const SMS_BLACKLIST_CHECK = parseInt(process.env.SMS_BLACKLIST_CHECK) || 1;
-const SMS_API_KEY = process.env.SMS_API_KEY || 'abc9d759-f1a7-442c-a53f-32518df0e4d1';
+const SMS_URL = process.env.SMS_URL;
+const SMS_USERNAME = process.env.SMS_USERNAME ;
+const SMS_PASSWORD = process.env.SMS_PASSWORD ;
+const SMS_USER_CODE = parseInt(process.env.SMS_USER_CODE);
+const SMS_ACCOUNT_ID = parseInt(process.env.SMS_ACCOUNT_ID);
+const SMS_ORIGINATOR = process.env.SMS_ORIGINATOR;
+const SMS_VALIDITY_PERIOD = parseInt(process.env.SMS_VALIDITY_PERIOD);
+const SMS_BLACKLIST_CHECK = parseInt(process.env.SMS_BLACKLIST_CHECK) ;
+const SMS_API_KEY = process.env.SMS_API_KEY;
 
 console.log('📋 SMS Konfigürasyonu:');
 console.log('URL:', SMS_URL);

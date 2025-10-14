@@ -10,14 +10,19 @@ const dbConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'appointment_app',
   charset: 'utf8mb4',
-  ssl: false, // SSL devre dışı
-  connectionLimit: 10,
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false, // Production'da SSL sertifikası kontrolü
+    ca: process.env.SSL_CA_PATH ? require('fs').readFileSync(process.env.SSL_CA_PATH) : undefined
+  } : false,
+  connectionLimit: process.env.NODE_ENV === 'production' ? 20 : 10,
   queueLimit: 0,
   multipleStatements: false,
-  timezone: '+03:00' // Türkiye saat dilimi
+  timezone: '+03:00', 
+  acquireTimeout: 60000,
+  timeout: 60000,
+  reconnect: true
 };
 
-// Senkron bağlantı (callback tabanlı)
 const createConnection = () => {
   const connection = mysql.createConnection(dbConfig);
   
@@ -32,7 +37,6 @@ const createConnection = () => {
   return connection;
 };
 
-// Asenkron bağlantı (promise tabanlı)
 const createAsyncConnection = async () => {
   try {
     const connection = await mysql2Promise.createConnection(dbConfig);
@@ -43,7 +47,6 @@ const createAsyncConnection = async () => {
   }
 };
 
-// Connection pool oluştur (daha verimli)
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT || 3307,
@@ -51,21 +54,19 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME ,
   charset: 'utf8mb4',
-  ssl: false, // SSL devre dışı
+  ssl: false, 
   multipleStatements: false,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  timezone: '+03:00' // Türkiye saat dilimi
+  timezone: '+03:00' 
 });
 
-// Promise tabanlı pool
 const promisePool = mysql2Promise.createPool({
   ...dbConfig,
   waitForConnections: true
 });
 
-// Bağlantıyı test et
 const testConnection = async () => {
   try {
     const connection = await createAsyncConnection();
@@ -79,16 +80,13 @@ const testConnection = async () => {
   }
 };
 
-// Query method'u ekle
 promisePool.query = async (sql, params) => {
   const [rows] = await promisePool.execute(sql, params);
   return rows;
 };
 
-// Default export olarak promisePool'u kullan
 module.exports = promisePool;
 
-// Named exports da ekle
 module.exports.dbConfig = dbConfig;
 module.exports.createConnection = createConnection;
 module.exports.createAsyncConnection = createAsyncConnection;

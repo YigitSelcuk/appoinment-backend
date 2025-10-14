@@ -3,7 +3,6 @@ const router = express.Router();
 const { getActivities, getActivityStats, logActivityEndpoint, checkTimezone } = require('../controllers/activitiesController');
 const { authenticateToken, requireManagement } = require('../middleware/security');
 
-// Tüm rotalar için auth middleware ve management kontrolü
 router.use(authenticateToken);
 router.use(requireManagement);
 

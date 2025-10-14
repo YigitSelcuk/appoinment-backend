@@ -66,20 +66,17 @@ router.post('/admin/add-repeat-column', authenticateToken, async (req, res) => {
   try {
     const db = require('../config/database');
     
-    // Önce alanın var olup olmadığını kontrol et
     const [columns] = await db.execute(
       "SHOW COLUMNS FROM appointments LIKE 'repeat_type'"
     );
     
     if (columns.length === 0) {
-      // repeat_type alanını ekle
       await db.execute(`
         ALTER TABLE appointments 
         ADD COLUMN repeat_type ENUM('TEKRARLANMAZ', 'HAFTALIK', 'AYLIK') DEFAULT 'TEKRARLANMAZ' 
         AFTER source
       `);
       
-      // Mevcut randevuları güncelle
       await db.execute(`
         UPDATE appointments SET repeat_type = 'TEKRARLANMAZ' WHERE repeat_type IS NULL
       `);

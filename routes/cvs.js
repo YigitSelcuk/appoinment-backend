@@ -17,7 +17,6 @@ const {
   updateCVStatus
 } = require('../controllers/cvsController');
 
-// Upload klasörünü oluştur
 const uploadDir = path.join(__dirname, '../uploads/cvs');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -35,7 +34,6 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  // CV dosyası için kabul edilen türler
   const documentTypes = [
     'application/pdf',
     'application/msword',
@@ -94,7 +92,7 @@ router.get('/:id', getCVById);
 
 // POST /api/cvs - Yeni CV ekle
 router.post('/', upload.fields([
-  { name: 'cv_dosyasi', maxCount: 5 }, // Birden fazla CV dosyası için maxCount artırıldı
+  { name: 'cv_dosyasi', maxCount: 5 }, 
   { name: 'profil_resmi', maxCount: 1 }
 ]), createCV);
 
@@ -113,7 +111,6 @@ router.delete('/:id', deleteCV);
 // PUT /api/cvs/:id/status - CV durumu güncelle
 router.put('/:id/status', updateCVStatus);
 
-// Error handling middleware for multer
 router.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {

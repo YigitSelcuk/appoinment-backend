@@ -21,7 +21,7 @@ router.post('/register',
 
 // Kullanıcı girişi - Enhanced Rate limiting ve validation ile
 router.post('/login', 
-  loginRateLimit, // Yeni gelişmiş rate limiting
+  loginRateLimit, 
   loginValidation, 
   handleValidationErrors, 
   login
@@ -36,17 +36,14 @@ router.post('/logout', authenticateToken, logout);
 // sendBeacon için logout endpoint (token gerektirmez)
 router.post('/logout-beacon', async (req, res) => {
   try {
-    // Request header'dan token'ı al (eğer varsa)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       
-      // Token'ı decode et
       const jwt = require('jsonwebtoken');
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
       if (decoded && decoded.id) {
-        // Kullanıcıyı offline yap
         const db = require('../config/database');
         const updateQuery = 'UPDATE users SET is_online = FALSE, last_seen = CURRENT_TIMESTAMP WHERE id = ?';
         await db.query(updateQuery, [decoded.id]);
@@ -57,7 +54,6 @@ router.post('/logout-beacon', async (req, res) => {
     console.error('Logout beacon error:', error);
   }
   
-  // Her durumda başarılı response dön
   res.status(200).json({ success: true, message: 'Logout beacon received' });
 });
 
@@ -73,9 +69,8 @@ router.get('/verify', (req, res) => {
       });
     }
 
-    const token = authHeader.substring(7); // "Bearer " kısmını çıkar
+    const token = authHeader.substring(7); 
 
-    // Token'ı doğrula
     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
       if (err) {
         return res.status(401).json({
@@ -84,7 +79,6 @@ router.get('/verify', (req, res) => {
         });
       }
 
-      // Token geçerli
       res.json({
         success: true,
         message: 'Token geçerli',

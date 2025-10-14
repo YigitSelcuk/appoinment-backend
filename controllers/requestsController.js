@@ -2,30 +2,25 @@ const db = require('../config/database');
 const { logActivity } = require('./activitiesController');
 const { createNotification } = require('./notificationsController');
 
-// Talep istatistiklerini getir
 const getRequestStats = async (req, res) => {
   try {
     const userId = req.user?.id || 1;
     
-    // Devam eden talepler (DÜŞÜK, NORMAL, ACİL, ÇOK ACİL, KRİTİK)
     const [devamEdenResult] = await db.execute(
       `SELECT COUNT(*) as count FROM requests 
        WHERE durum IN ('DÜŞÜK', 'NORMAL', 'ACİL', 'ÇOK ACİL', 'KRİTİK')`
     );
     
-    // Tamamlanan talepler
     const [tamamlananResult] = await db.execute(
       `SELECT COUNT(*) as count FROM requests 
        WHERE durum = 'TAMAMLANDI'`
     );
     
-    // Açık talepler (son 30 gün içinde oluşturulan)
     const [acikResult] = await db.execute(
       `SELECT COUNT(*) as count FROM requests 
        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
     );
     
-    // Toplam talepler
     const [toplamResult] = await db.execute(
       `SELECT COUNT(*) as count FROM requests`
     );
@@ -52,10 +47,8 @@ const getRequestStats = async (req, res) => {
   }
 };
 
-// Tüm talepleri getir (sayfalama ile) - Kullanıcının kendi talepleri
 const getRequests = async (req, res) => {
   try {
-    // Debug için user bilgisini kontrol et
     console.log('User info:', req.user);
     
     const page = parseInt(req.query.page) || 1;
@@ -63,11 +56,9 @@ const getRequests = async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search || '';
 
-    // User ID'yi kontrol et
-    const userId = req.user?.id || 1; // Fallback olarak 1 kullan
+    const userId = req.user?.id || 1; 
     console.log('Using userId:', userId);
 
-    // Önce requests tablosunun var olup olmadığını kontrol et
     try {
       await db.execute('SELECT 1 FROM requests LIMIT 1');
     } catch (error) {
@@ -79,7 +70,6 @@ const getRequests = async (req, res) => {
       });
     }
 
-    // Kullanıcının rol ve müdürlük bilgilerini al
     const [userInfo] = await db.execute(
       'SELECT role, department FROM users WHERE id = ?', 
       [userId]
@@ -94,22 +84,18 @@ const getRequests = async (req, res) => {
 
     const { role, department } = userInfo[0];
     
-    // Filtreleme mantığı
     let whereClause = '';
     let countParams = [];
     let queryParams = [];
     
     if (role === 'admin' || role === 'başkan' || department === 'BAŞKAN') {
-      // Admin, Başkan rolü veya BAŞKAN department'ındaki kullanıcılar tüm talepleri görebilir
       whereClause = 'WHERE 1=1';
     } else {
-      // Diğer kullanıcılar sadece kendi müdürlüklerine ait talepleri görebilir
       whereClause = 'WHERE r.ilgili_mudurluk = ?';
       countParams.push(department);
       queryParams.push(department);
     }
 
-    // Arama varsa
     if (search) {
       whereClause += ` AND (
         r.ad LIKE ? OR 
@@ -129,7 +115,6 @@ const getRequests = async (req, res) => {
 
     console.log('Count params:', countParams);
 
-    // Toplam kayıt sayısını al
     const countQuery = `SELECT COUNT(*) as total FROM requests r ${whereClause}`;
     
     const [countResult] = await db.execute(countQuery, countParams);
@@ -138,7 +123,6 @@ const getRequests = async (req, res) => {
 
     console.log('Query params before LIMIT/OFFSET:', queryParams);
 
-    // Talepleri getir - LIMIT ve OFFSET'i doğrudan SQL'de kullan
     const query = `
       SELECT 
         r.*,
@@ -156,12 +140,10 @@ const getRequests = async (req, res) => {
 
     const [requests] = await db.execute(query, queryParams);
 
-    // Tarihleri formatla
     const formattedRequests = requests.map(request => ({
       ...request,
       created_at: request.created_at.toISOString(),
       updated_at: request.updated_at.toISOString(),
-      // Display için ayrı bir field ekle
       created_at_display: new Date(request.created_at).toLocaleString('tr-TR'),
       updated_at_display: new Date(request.updated_at).toLocaleString('tr-TR')
     }));
@@ -198,7 +180,6 @@ const getRequests = async (req, res) => {
   }
 };
 
-// Yeni talep oluştur
 const createRequest = async (req, res) => {
   try {
     const {
@@ -219,7 +200,6 @@ const createRequest = async (req, res) => {
 
 
 
-    // Zorunlu alanları kontrol et
     if (!ad || !soyad) {
       return res.status(400).json({
         success: false,
@@ -227,7 +207,6 @@ const createRequest = async (req, res) => {
       });
     }
 
-    // TC Kimlik No varsa kontrol et
     if (tcNo && tcNo.length !== 11) {
       return res.status(400).json({
         success: false,
@@ -266,7 +245,6 @@ const createRequest = async (req, res) => {
 
     const [result] = await db.execute(query, values);
 
-    // Aktivite kaydı
     await logActivity(
       req.user.id,
       req.user.name || req.user.email,
@@ -281,14 +259,12 @@ const createRequest = async (req, res) => {
       req.get('User-Agent')
     );
 
-    // İlgili müdürlük kullanıcılarına bildirim gönder
     try {
       const [departmentUsers] = await db.execute(
         'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
         [ilgiliMudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', req.user.id]
       );
 
-      // Her kullanıcıya bildirim gönder
       for (const user of departmentUsers) {
         await createNotification(
           user.id,
@@ -303,7 +279,6 @@ const createRequest = async (req, res) => {
       console.log(`${departmentUsers.length} kullanıcıya bildirim gönderildi`);
     } catch (notificationError) {
       console.error('Bildirim gönderilirken hata:', notificationError);
-      // Bildirim hatası talep oluşturma işlemini etkilemesin
     }
 
     res.status(201).json({
@@ -328,7 +303,6 @@ const createRequest = async (req, res) => {
   }
 };
 
-// Talep güncelle
 const updateRequest = async (req, res) => {
   try {
     const { id } = req.params;
@@ -350,8 +324,6 @@ const updateRequest = async (req, res) => {
       durum
     } = req.body;
 
-    // Talebin var olup olmadığını kontrol et
-    // Admin kullanıcıları tüm talepleri güncelleyebilir, normal kullanıcılar sadece kendi taleplerini
     let checkQuery, checkParams;
     if (req.user.role === 'admin') {
       checkQuery = 'SELECT * FROM requests WHERE id = ?';
@@ -399,14 +371,12 @@ const updateRequest = async (req, res) => {
 
     await db.execute(query, values);
 
-    // Değişiklikleri tespit et
     const changes = [];
     if (oldRecord.durum !== durum) changes.push(`Durum: ${oldRecord.durum} → ${durum}`);
     if (oldRecord.ad !== ad) changes.push(`Ad: ${oldRecord.ad} → ${ad}`);
     if (oldRecord.soyad !== soyad) changes.push(`Soyad: ${oldRecord.soyad} → ${soyad}`);
     if (oldRecord.talep_basligi !== talepBasligi) changes.push(`Başlık: ${oldRecord.talep_basligi} → ${talepBasligi}`);
 
-    // Aktivite kaydı
     await logActivity(
       req.user.id,
       req.user.name || req.user.email,
@@ -426,14 +396,12 @@ const updateRequest = async (req, res) => {
       req.get('User-Agent')
     );
 
-    // İlgili müdürlük kullanıcılarına bildirim gönder (güncelleme için)
     try {
       const [departmentUsers] = await db.execute(
         'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
         [ilgiliMudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', req.user.id]
       );
 
-      // Her kullanıcıya bildirim gönder
       for (const user of departmentUsers) {
         await createNotification(
           user.id,
@@ -448,7 +416,6 @@ const updateRequest = async (req, res) => {
       console.log(`${departmentUsers.length} kullanıcıya güncelleme bildirimi gönderildi`);
     } catch (notificationError) {
       console.error('Güncelleme bildirimi gönderilirken hata:', notificationError);
-      // Bildirim hatası talep güncelleme işlemini etkilemesin
     }
 
     res.json({
@@ -466,12 +433,10 @@ const updateRequest = async (req, res) => {
   }
 };
 
-// Talep sil
 const deleteRequest = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Talebin var olup olmadığını ve kullanıcıya ait olup olmadığını kontrol et
     const checkQuery = 'SELECT * FROM requests WHERE id = ? AND user_id = ?';
     const [existing] = await db.execute(checkQuery, [id, req.user.id]);
 
@@ -487,7 +452,6 @@ const deleteRequest = async (req, res) => {
     const query = 'DELETE FROM requests WHERE id = ? AND user_id = ?';
     await db.execute(query, [id, req.user.id]);
 
-    // Aktivite kaydı
     await logActivity(
       req.user.id,
       req.user.name || req.user.email,
@@ -507,14 +471,12 @@ const deleteRequest = async (req, res) => {
       req.get('User-Agent')
     );
 
-    // İlgili müdürlük kullanıcılarına bildirim gönder (silme için)
     try {
       const [departmentUsers] = await db.execute(
         'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
         [deletedRecord.ilgili_mudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', req.user.id]
       );
 
-      // Her kullanıcıya bildirim gönder
       for (const user of departmentUsers) {
         await createNotification(
           user.id,
@@ -529,7 +491,6 @@ const deleteRequest = async (req, res) => {
       console.log(`${departmentUsers.length} kullanıcıya silme bildirimi gönderildi`);
     } catch (notificationError) {
       console.error('Silme bildirimi gönderilirken hata:', notificationError);
-      // Bildirim hatası talep silme işlemini etkilemesin
     }
 
     res.json({
@@ -547,7 +508,6 @@ const deleteRequest = async (req, res) => {
   }
 };
 
-// Tek talep getir
 const getRequestById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -573,7 +533,6 @@ const getRequestById = async (req, res) => {
 
     const request = requests[0];
     
-    // Tarihleri formatla
     const originalCreatedAt = request.created_at;
     const originalUpdatedAt = request.updated_at;
     
@@ -599,7 +558,6 @@ const getRequestById = async (req, res) => {
   }
 };
 
-// TC Kimlik No kontrolü
 const checkTCExists = async (req, res) => {
   try {
     const { tcNo } = req.params;
@@ -640,13 +598,11 @@ const checkTCExists = async (req, res) => {
   }
 };
 
-// Müdürlük bazlı talepleri getir (müdürlükteki kişilerin görebileceği talepler)
 const getDepartmentRequests = async (req, res) => {
   try {
     console.log('getDepartmentRequests çağrıldı');
     console.log('req.user:', req.user);
     
-    // Basit bir sorgu ile tüm talepleri getir
     const query = `
       SELECT 
         id,
@@ -668,7 +624,6 @@ const getDepartmentRequests = async (req, res) => {
     const [requests] = await db.execute(query);
     console.log('Bulunan talep sayısı:', requests.length);
     
-    // Basit response döndür
     const response = {
       success: true,
       data: requests,
@@ -689,7 +644,6 @@ const getDepartmentRequests = async (req, res) => {
   }
 };
 
-// Talep durumunu güncelle
 const updateRequestStatus = async (req, res) => {
   try {
     const requestId = parseInt(req.params.id);
@@ -697,7 +651,6 @@ const updateRequestStatus = async (req, res) => {
     const userId = req.user?.id || 1;
     const userName = req.user?.name || 'Admin User';
 
-    // Kullanıcının rol ve müdürlük bilgisini al
     const [userResult] = await db.execute('SELECT role, department FROM users WHERE id = ?', [userId]);
     
     if (userResult.length === 0) {
@@ -709,17 +662,14 @@ const updateRequestStatus = async (req, res) => {
 
     const { role: userRole, department: userDepartment } = userResult[0];
 
-    // Mevcut talebi kontrol et
     let existingRequests;
     
-    // Başkan rolü, admin rolü veya BAŞKAN department'ındaki kullanıcılar tüm talepleri görebilir ve güncelleyebilir
     if (userRole === 'başkan' || userRole === 'admin' || userDepartment === 'BAŞKAN') {
       [existingRequests] = await db.execute(
         'SELECT * FROM requests WHERE id = ?',
         [requestId]
       );
     } else {
-      // Diğer kullanıcılar sadece kendi müdürlüklerinin taleplerini güncelleyebilir
       [existingRequests] = await db.execute(
         'SELECT * FROM requests WHERE id = ? AND ilgili_mudurluk = ?',
         [requestId, userDepartment]
@@ -736,13 +686,11 @@ const updateRequestStatus = async (req, res) => {
     const oldRequest = existingRequests[0];
     const oldStatus = oldRequest.durum;
 
-    // Durumu güncelle
     await db.execute(
       'UPDATE requests SET durum = ? WHERE id = ?',
       [durum, requestId]
     );
 
-    // Status history kaydet
     await db.execute(
       `INSERT INTO request_status_history 
        (request_id, old_status, new_status, updated_by_user_id, updated_by_name, updated_by_department, comments) 
@@ -750,7 +698,6 @@ const updateRequestStatus = async (req, res) => {
       [requestId, oldStatus, durum, userId, userName, userDepartment, comments || null]
     );
 
-    // Aktivite kaydet
     await logActivity(
       userId,
       userName,
@@ -765,14 +712,12 @@ const updateRequestStatus = async (req, res) => {
       req.get('User-Agent')
     );
 
-    // İlgili müdürlük kullanıcılarına bildirim gönder (durum değişikliği için)
     try {
       const [departmentUsers] = await db.execute(
         'SELECT id, name, email FROM users WHERE department = ? AND id != ?',
         [oldRequest.ilgili_mudurluk || 'BİLGİ İŞLEM MÜDÜRLÜĞÜ', userId]
       );
 
-      // Talep sahibine de bildirim gönder (eğer farklı müdürlükteyse)
       if (oldRequest.user_id && oldRequest.user_id !== userId) {
         const [requestOwner] = await db.execute(
           'SELECT id, name, email FROM users WHERE id = ?',
@@ -791,7 +736,6 @@ const updateRequestStatus = async (req, res) => {
         }
       }
 
-      // Her müdürlük kullanıcısına bildirim gönder
       for (const user of departmentUsers) {
         await createNotification(
           user.id,
@@ -806,7 +750,6 @@ const updateRequestStatus = async (req, res) => {
       console.log(`${departmentUsers.length} kullanıcıya durum değişikliği bildirimi gönderildi`);
     } catch (notificationError) {
       console.error('Durum değişikliği bildirimi gönderilirken hata:', notificationError);
-      // Bildirim hatası durum güncelleme işlemini etkilemesin
     }
 
     res.json({
@@ -826,12 +769,10 @@ const updateRequestStatus = async (req, res) => {
   }
 };
 
-// Talep durum geçmişini getir
 const getRequestStatusHistory = async (req, res) => {
   try {
     const requestId = parseInt(req.params.id);
     
-    // Status history'yi getir
     const [history] = await db.execute(
       `SELECT 
         rsh.*,
@@ -844,7 +785,6 @@ const getRequestStatusHistory = async (req, res) => {
       [requestId]
     );
 
-    // Tarihleri formatla
     const formattedHistory = history.map(item => ({
       ...item,
       created_at: item.created_at.toISOString(),
@@ -877,7 +817,6 @@ const deleteMultipleRequests = async (req, res) => {
       });
     }
 
-    // Tüm taleplerin var olup olmadığını ve kullanıcıya ait olup olmadığını kontrol et
     const placeholders = requestIds.map(() => '?').join(',');
     const checkQuery = `SELECT * FROM requests WHERE id IN (${placeholders}) AND user_id = ?`;
     const [existing] = await db.execute(checkQuery, [...requestIds, req.user.id]);
@@ -889,11 +828,9 @@ const deleteMultipleRequests = async (req, res) => {
       });
     }
 
-    // Toplu silme işlemi
     const deleteQuery = `DELETE FROM requests WHERE id IN (${placeholders}) AND user_id = ?`;
     await db.execute(deleteQuery, [...requestIds, req.user.id]);
 
-    // Her silinen talep için aktivite kaydı
     for (const record of existing) {
       await logActivity(
         req.user.id,

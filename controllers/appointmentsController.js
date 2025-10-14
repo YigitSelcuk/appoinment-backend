@@ -6,7 +6,6 @@ const notificationsController = require('./notificationsController');
 const { logActivity } = require('./activitiesController');
 const { getIO } = require('../utils/socket');
 
-// Yerel tarih formatı için yardımcı fonksiyon (saat dilimi kaymasını önler)
 const formatDateForDB = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -14,10 +13,8 @@ const formatDateForDB = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-// Randevu çakışması kontrolü
 const checkAppointmentConflict = async (userId, date, startTime, endTime, excludeId = null) => {
   try {
-    // Frontend'den gelen tarih string'ini doğrudan kullan (DATE tipinde karşılaştırma için)
     
     let query = `
       SELECT id, title, start_time, end_time, user_id, attendee_name, status
@@ -28,14 +25,10 @@ const checkAppointmentConflict = async (userId, date, startTime, endTime, exclud
       AND status NOT IN ('COMPLETED', 'CANCELLED', 'CONFIRMED')
     `;
     
-    // İki randevu çakışmıyor ancak ve ancak:
-    // 1. Birincisi ikincisinden önce bitiyorsa (end_time <= startTime) VEYA
-    // 2. Birincisi ikincisinden sonra başlıyorsa (start_time >= endTime)
-    // Bu durumların tersi çakışma demektir, bu yüzden NOT kullanıyoruz
+   
     
     const params = [userId, date, startTime, endTime];
 
-    // Güncelleme işleminde mevcut randevuyu hariç tut
     if (excludeId) {
       query += ' AND id != ?';
       params.push(excludeId);
@@ -49,24 +42,16 @@ const checkAppointmentConflict = async (userId, date, startTime, endTime, exclud
   }
 };
 
-// Tüm kullanıcılar için çakışma kontrolü (genel çakışma)
 const checkGlobalAppointmentConflict = async (date, startTime, endTime, excludeId = null, userId = null) => {
   try {
-    // Çakışma kontrolü başlıyor
     
-    // Eğer startTime veya endTime yoksa çakışma kontrolünü atla
     if (!startTime || !endTime) {
       console.log('StartTime veya endTime boş, çakışma kontrolü atlanıyor');
       return [];
     }
     
-    // Frontend'den gelen tarih string'ini doğrudan kullan
     
-    // Çakışma kontrolü: İki randevu çakışmaz eğer:
-    // 1. Yeni randevunun bitişi mevcut randevunun başlangıcından önce VEYA
-    // 2. Yeni randevunun başlangıcı mevcut randevunun bitişinden sonra
-    // Bu durumların tersi çakışma demektir, bu yüzden NOT kullanıyoruz
-    // Ayrıca tamamlanan ve iptal edilen randevularla çakışma kontrolü yapılmaz
+   
     let query = `
       SELECT id, title, date, start_time, end_time, user_id, attendee_name, status
       FROM appointments 
@@ -77,13 +62,11 @@ const checkGlobalAppointmentConflict = async (date, startTime, endTime, excludeI
     
     const params = [date, startTime, endTime];
 
-    // Eğer userId verilmişse, sadece o kullanıcının randevularını kontrol et
     if (userId) {
       query += ' AND user_id = ?';
       params.push(userId);
     }
 
-    // Güncelleme işleminde mevcut randevuyu hariç tut
     if (excludeId) {
       query += ' AND id != ?';
       params.push(excludeId);
@@ -109,13 +92,11 @@ const checkGlobalAppointmentConflict = async (date, startTime, endTime, excludeI
   }
 };
 
-// Tüm randevuları getir
 const getAppointments = async (req, res) => {
   try {
     const userId = req.user.id;
     const user = req.user;
     
-    // BAŞKAN departmanı, admin veya başkan rolündeki kullanıcılar tüm randevuları görebilir
     const canViewAll = user.role === 'admin' || 
                       user.role === 'başkan' || 
                       user.department === 'BAŞKAN';
@@ -123,7 +104,6 @@ const getAppointments = async (req, res) => {
     let query, queryParams;
     
     if (canViewAll) {
-      // Tüm randevuları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -139,7 +119,6 @@ const getAppointments = async (req, res) => {
       `;
       queryParams = [];
     } else {
-      // Normal kullanıcı - sadece kendi randevularını veya görünür olanları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -183,11 +162,8 @@ const getAppointments = async (req, res) => {
       });
     }
     
-    // JSON verilerini parse et
     for (let appointment of appointments) {
       try {
-        // Güvenli JSON parse için yardımcı fonksiyon
-        // Debug için invitees logla (PARSE ÖNCESI)
         if (appointment.id === 11) { // Sizin randevunuzun ID'si
           console.log('=== BACKEND INVITEES DEBUG (Appointment ID: 11) ===');
           console.log('PARSE ÖNCESI:');
@@ -200,12 +176,10 @@ const getAppointments = async (req, res) => {
         }
         
         const safeJsonParse = (jsonData) => {
-          // Eğer zaten object/array ise direkt döndür
           if (typeof jsonData === 'object' && jsonData !== null) {
             return Array.isArray(jsonData) ? jsonData : [jsonData];
           }
           
-          // String ise parse et
           if (typeof jsonData === 'string') {
             if (!jsonData || jsonData === null || jsonData === '') {
               return [];
@@ -224,8 +198,7 @@ const getAppointments = async (req, res) => {
         appointment.invitees = safeJsonParse(appointment.invitees);
         appointment.visible_to_users = safeJsonParse(appointment.visible_to_users);
         
-        // Debug için invitees logla (PARSE SONRASI)
-        if (appointment.id === 11) { // Sizin randevunuzun ID'si
+        if (appointment.id === 11) { 
           console.log('PARSE SONRASI:');
           console.log('Parsed invitees:', appointment.invitees);
           console.log('Is Array:', Array.isArray(appointment.invitees));
@@ -257,11 +230,10 @@ const getAppointments = async (req, res) => {
   }
 };
 
-// Randevu çakışması kontrolü endpoint'i
 const checkConflict = async (req, res) => {
   try {
     const { date, startTime, endTime, excludeId } = req.query;
-    const userId = req.user.id; // Kullanıcı ID'sini al
+    const userId = req.user.id; 
 
     if (!date || !startTime || !endTime) {
       return res.status(400).json({
@@ -291,8 +263,6 @@ const checkConflict = async (req, res) => {
   }
 };
 
-// Yeni randevu oluştur
-// Tekrarlanan randevuları oluşturan yardımcı fonksiyon
 const createRepeatedAppointments = async ({
   originalAppointment,
   repeat,
@@ -311,10 +281,8 @@ const createRepeatedAppointments = async ({
 }) => {
   const originalDate = new Date(originalAppointment.date);
   
-  // Makul tekrarlama sayısı belirle
-  const maxRepeats = repeat === 'HAFTALIK' ? 12 : 6; // 12 hafta veya 6 ay
+  const maxRepeats = repeat === 'HAFTALIK' ? 12 : 6; 
   
-  // JSON verilerini önceden hazırla
   const inviteesJson = selectedContacts && selectedContacts.length > 0 
     ? JSON.stringify(selectedContacts.map(contact => ({
         name: contact.name,
@@ -331,21 +299,17 @@ const createRepeatedAppointments = async ({
       })))
     : JSON.stringify([]);
   
-  // Tüm randevu verilerini toplu olarak hazırla
   const appointmentValues = [];
   
   for (let i = 1; i <= maxRepeats; i++) {
     let nextDate;
     
     if (repeat === 'HAFTALIK') {
-      // Daha güvenli tarih hesaplama: milisaniye bazında hesaplama
       const originalTime = originalDate.getTime();
       const weekInMilliseconds = 7 * 24 * 60 * 60 * 1000; // 7 gün
       nextDate = new Date(originalTime + (i * weekInMilliseconds));
       
-      // Saat dilimi kayması kontrolü - orijinal günü korumak için
       if (nextDate.getDay() !== originalDate.getDay()) {
-        // Gün kayması varsa, doğru güne ayarla
         const dayDifference = originalDate.getDay() - nextDate.getDay();
         nextDate.setDate(nextDate.getDate() + dayDifference);
       }
@@ -353,15 +317,13 @@ const createRepeatedAppointments = async ({
       nextDate = new Date(originalDate);
       nextDate.setMonth(originalDate.getMonth() + i);
       
-      // Eğer hedef ay daha az güne sahipse (örn. 31 Ocak -> 28/29 Şubat)
       if (nextDate.getDate() !== originalDate.getDate()) {
-        nextDate.setDate(0); // Önceki ayın son günü
+        nextDate.setDate(0); 
       }
     }
     
     const nextDateStr = formatDateForDB(nextDate);
     
-    // Her randevu için parametre dizisi
     appointmentValues.push([
       userId,
       title,
@@ -391,7 +353,6 @@ const createRepeatedAppointments = async ({
   }
   
   try {
-    // Tek sorguda tüm randevuları oluştur (BATCH INSERT)
     const placeholders = appointmentValues.map(() => 
       '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     ).join(', ');
@@ -412,10 +373,8 @@ const createRepeatedAppointments = async ({
       ) VALUES ${placeholders}
     `;
     
-    // Tüm parametreleri düzleştir
     const flatParams = appointmentValues.flat();
     
-    // Batch INSERT çalıştır
     const [result] = await db.execute(batchInsertQuery, flatParams);
     
     console.log(`✅ ${maxRepeats} tekrarlanan randevu tek sorguda oluşturuldu`);
@@ -424,18 +383,15 @@ const createRepeatedAppointments = async ({
       insertId: result.insertId
     });
     
-    // Socket.IO ile tek event gönder
     try {
       const io = getIO();
       if (io) {
-        // Randevu sahibine gönder
         io.to(`user-${userId}`).emit('appointments-batch-created', {
           count: maxRepeats,
           type: repeat,
           message: `${maxRepeats} tekrarlanan randevu oluşturuldu`
         });
 
-        // Görünürlük listesindeki kullanıcılara da gönder
         if (visibleToUsers && visibleToUsers.length > 0) {
           visibleToUsers.forEach(visibleUser => {
             if (visibleUser.id && visibleUser.id !== userId) {
@@ -448,7 +404,6 @@ const createRepeatedAppointments = async ({
           });
         }
 
-        // Tüm kullanıcılara görünürse herkese gönder
         if (visibleToAll) {
           io.emit('appointments-batch-created', {
             count: maxRepeats,
@@ -495,8 +450,7 @@ const createAppointment = async (req, res) => {
     
 
     
-    // Default değerler - artık frontend'den gelmiyor
-    const status = 'SCHEDULED'; // Her zaman planlandı olarak başla
+    const status = 'SCHEDULED'; 
     
     console.log('Çıkarılan veriler:');
     console.log('title:', title);
@@ -509,14 +463,12 @@ const createAppointment = async (req, res) => {
     console.log('visibleToUsers:', visibleToUsers);
     console.log('location:', location);
 
-    // Artık attendee alanı yok - katılımcılar selectedContacts ile gelir
     const attendeeName = null;
     const attendeeEmail = null;
     const attendeePhone = null;
 
-    // Global çakışma kontrolü - TÜM randevuları kontrol et (başkaların randevularıyla da çakışmaması için)
     console.log('Çakışma kontrolü yapılıyor...');
-    const globalConflicts = await checkGlobalAppointmentConflict(date, startTime, endTime, null, null); // userId=null ile TÜM randevuları kontrol et
+    const globalConflicts = await checkGlobalAppointmentConflict(date, startTime, endTime, null, null); 
     console.log('Çakışma kontrolü sonucu:', globalConflicts);
     
     if (globalConflicts.length > 0) {
@@ -536,7 +488,6 @@ const createAppointment = async (req, res) => {
     
     console.log('Çakışma yok, randevu oluşturuluyor...');
 
-    // Tarihi doğrudan kullan (DATE tipinde kaydetmek için)
     console.log('Kaydedilecek tarih:', date);
 
     const query = `
@@ -555,7 +506,6 @@ const createAppointment = async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `;
     
-    // JSON verilerini hazırla
     const inviteesJson = selectedContacts && selectedContacts.length > 0 
       ? JSON.stringify(selectedContacts.map(contact => ({
           name: contact.name,
@@ -574,17 +524,17 @@ const createAppointment = async (req, res) => {
     
     const queryParams = [
       userId, title, date, startTime, endTime, 
-      userName, userEmail, // created_by_name, created_by_email
+      userName, userEmail, 
       attendeeName, attendeeEmail, attendeePhone,
       description, color, location,
       notificationEmail || false, notificationSMS || false,
-      null, null, // reminder_value ve reminder_unit artık kullanılmıyor
-      google_event_id || null, // Google Calendar event ID
-      'SYSTEM', // source - kendi sistemimizden eklenen randevular
+      null, null, 
+      google_event_id || null, 
+      'SYSTEM', 
       status || 'SCHEDULED',
-      inviteesJson, visibleUsersJson, // attendees sütunu yok, sadece invitees ve visible_to_users
+      inviteesJson, visibleUsersJson, 
       visibleToAll || false,
-      repeat || 'TEKRARLANMAZ' // repeat_type
+      repeat || 'TEKRARLANMAZ' 
     ];
     
     console.log('Veritabanına kaydetme sorgusu:', query);
@@ -595,10 +545,8 @@ const createAppointment = async (req, res) => {
     
     const appointmentId = result.insertId;
     
-    // Görünürlük ayarları artık JSON olarak ana tabloda tutuluyor
     console.log('Görünürlük ayarları kaydedildi - visible_to_all:', visibleToAll, 'visible_to_users count:', visibleToUsers?.length || 0);
 
-    // Yeni oluşturulan randevuyu getir
     const [newAppointment] = await db.execute(`
       SELECT 
         a.*,
@@ -609,10 +557,8 @@ const createAppointment = async (req, res) => {
       WHERE a.id = ?
     `, [appointmentId]);
 
-    // Artık attendees bilgileri JSON olarak ana tabloda tutuluyor
     console.log('Katılımcı bilgileri JSON olarak ana tabloda kaydedildi:', attendeeName);
 
-    // Hatırlatma kaydı oluştur (eğer reminderEnabled true ve reminderDateTime varsa)
     if (reminderEnabled && reminderDateTime) {
       try {
         console.log('📅 Hatırlatma zamanlanıyor:', {
@@ -623,7 +569,6 @@ const createAppointment = async (req, res) => {
           appointmentTime: startTime
         });
         
-        // Türkiye saati için +3 saat ekle
         const reminderDateTimeWithTimezone = new Date(new Date(reminderDateTime).getTime() + (3 * 60 * 60 * 1000));
         const reminderTimeForDB = reminderDateTimeWithTimezone.toISOString().slice(0, 19).replace('T', ' ');
         
@@ -631,8 +576,6 @@ const createAppointment = async (req, res) => {
         console.log('⏰ +3 saat eklenmiş:', reminderDateTimeWithTimezone.toISOString());
         console.log('⏰ DB formatı:', reminderTimeForDB);
         
-        // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
-        // Türkiye saati için doğru karşılaştırma
         const currentTimeUTC = new Date();
         const reminderTimeUTC = new Date(reminderDateTime);
         
@@ -645,9 +588,7 @@ const createAppointment = async (req, res) => {
         
         if (reminderTimeUTC <= currentTimeUTC) {
           console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}, Hatırlatma zamanı: ${reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`);
-          // Geçmiş zamanlı hatırlatma için uyarı mesajı ekle (response'a eklenecek)
         } else {
-          // +3 saat eklenmiş reminderDateTime ile hatırlatma kaydı oluştur
           const [reminderResult] = await db.execute(
             `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 
              VALUES (?, ?, 'scheduled', NOW(), NOW())`,
@@ -674,7 +615,6 @@ const createAppointment = async (req, res) => {
       console.log('ℹ️ Hatırlatma etkin değil, zamanlanmadı');
     }
 
-    // Aktivite kaydı oluştur
     try {
       const user = req.user;
       await logActivity(
@@ -706,7 +646,6 @@ const createAppointment = async (req, res) => {
     console.log('Randevu başarıyla oluşturuldu, yanıt gönderiliyor...');
     console.log('Oluşturulan randevu:', newAppointment[0]);
     
-    // Tekrarlanan randevuları oluştur
     let createdAppointments = [newAppointment[0]];
     
     if (repeat && repeat !== 'TEKRARLANMAZ') {
@@ -733,24 +672,20 @@ const createAppointment = async (req, res) => {
         }
       } catch (repeatError) {
         console.error('Tekrarlanan randevuları oluşturma hatası:', repeatError);
-        // Ana randevu oluşturuldu, tekrarlanan randevularda hata olsa da devam et
       }
     } else {
       console.log('Tekrarlanan randevu oluşturulmayacak - repeat:', repeat);
     }
 
-    // Socket.IO ile real-time güncelleme gönder
     try {
       const io = getIO();
       if (io) {
-        // Randevu sahibine gönder
         io.to(`user-${userId}`).emit('appointment-created', {
           appointment: newAppointment[0],
           message: 'Yeni randevu eklendi'
         });
         console.log(`Socket.IO appointment-created event kullanıcı ${userId} odasına gönderildi`);
 
-        // Görünürlük listesindeki kullanıcılara da gönder
         if (visibleToUsers && visibleToUsers.length > 0) {
           visibleToUsers.forEach(visibleUser => {
             if (visibleUser.id && visibleUser.id !== userId) {
@@ -763,7 +698,6 @@ const createAppointment = async (req, res) => {
           });
         }
 
-        // Tüm kullanıcılara görünürse herkese gönder
         if (visibleToAll) {
           io.emit('appointment-created', {
             appointment: newAppointment[0],
@@ -776,7 +710,6 @@ const createAppointment = async (req, res) => {
       console.error('Socket.IO event gönderme hatası:', socketError);
     }
 
-    // Response'u hemen gönder - bildirimler arka planda çalışacak
     res.status(201).json({
       success: true,
       data: newAppointment[0],
@@ -786,7 +719,6 @@ const createAppointment = async (req, res) => {
     
     console.log('Başarılı yanıt gönderildi, bildirimler arka planda gönderiliyor...');
 
-    // Bildirim gönderme işlemlerini arka planda paralel olarak çalıştır
     const sendNotificationsAsync = async () => {
       const appointmentData = {
         title,
@@ -799,7 +731,6 @@ const createAppointment = async (req, res) => {
 
       const notificationPromises = [];
 
-      // Davetli kişilere bildirim gönder
       if (selectedContacts && selectedContacts.length > 0) {
         console.log('Davetli kişilere bildirim gönderiliyor:', selectedContacts);
         
@@ -819,7 +750,6 @@ const createAppointment = async (req, res) => {
             );
           }
           
-          // SMS bildirimi
           if (notificationSMS && contact.phone) {
             const smsMessage = `Randevu Daveti: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
             notificationPromises.push(
@@ -838,12 +768,10 @@ const createAppointment = async (req, res) => {
         }
       }
 
-      // Görünürlük kullanıcılarına bildirim gönder
       if (visibleToUsers && visibleToUsers.length > 0) {
         console.log('Görünürlük kullanıcılarına bildirim gönderiliyor:', visibleToUsers);
         
         for (const user of visibleToUsers) {
-          // Uygulama içi bildirim gönder
           notificationPromises.push(
             notificationsController.createNotification(
               user.id,
@@ -859,7 +787,6 @@ const createAppointment = async (req, res) => {
             })
           );
           
-          // E-posta bildirimi
           if (notificationEmail && user.email) {
             notificationPromises.push(
               emailService.sendAppointmentNotification(
@@ -874,7 +801,6 @@ const createAppointment = async (req, res) => {
             );
           }
           
-          // SMS bildirimi
           if (notificationSMS && user.phone) {
             const smsMessage = `Yeni Randevu: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
             notificationPromises.push(
@@ -893,14 +819,12 @@ const createAppointment = async (req, res) => {
         }
       }
 
-      // Tüm kullanıcılara gönder seçeneği
       if (visibleToAll) {
         console.log('Tüm kullanıcılara bildirim gönderiliyor...');
         try {
           const [allUsers] = await db.execute('SELECT id, email, phone FROM users WHERE id != ?', [userId]);
           
           for (const user of allUsers) {
-            // Uygulama içi bildirim gönder
             notificationPromises.push(
               notificationsController.createNotification(
                 user.id,
@@ -916,7 +840,6 @@ const createAppointment = async (req, res) => {
               })
             );
             
-            // E-posta bildirimi
             if (notificationEmail && user.email) {
               notificationPromises.push(
                 emailService.sendAppointmentNotification(
@@ -931,7 +854,6 @@ const createAppointment = async (req, res) => {
               );
             }
             
-            // SMS bildirimi
             if (notificationSMS && user.phone) {
               const smsMessage = `Yeni Randevu: ${title}\nTarih: ${date}\nSaat: ${startTime} - ${endTime}\nKonum: ${location || 'Belirtilmemiş'}`;
               notificationPromises.push(
@@ -953,7 +875,6 @@ const createAppointment = async (req, res) => {
         }
       }
 
-      // Tüm bildirimları paralel olarak gönder
       if (notificationPromises.length > 0) {
         try {
           await Promise.allSettled(notificationPromises);
@@ -964,7 +885,6 @@ const createAppointment = async (req, res) => {
       }
     };
 
-    // Bildirimları arka planda çalıştır (await kullanmıyoruz)
     sendNotificationsAsync().catch(error => {
       console.error('Arka plan bildirim gönderme hatası:', error);
     });
@@ -980,7 +900,6 @@ const createAppointment = async (req, res) => {
   }
 };
 
-// Randevu güncelle
 const updateAppointment = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1021,13 +940,11 @@ const updateAppointment = async (req, res) => {
       isPrivate
     } = req.body;
 
-    // Frontend'den gelen field name'leri normalize et
     const normalizedStartTime = start_time || startTime;
     const normalizedEndTime = end_time || endTime;
 
 
 
-    // Önce randevunun var olup olmadığını kontrol et
     const [appointmentCheck] = await db.execute(
       'SELECT * FROM appointments WHERE id = ?',
       [appointmentId]
@@ -1043,11 +960,9 @@ const updateAppointment = async (req, res) => {
     const existingAppointment = appointmentCheck;
     const user = req.user;
 
-    // Yetki sistemi kaldırıldı - görünürlük varsa düzenleme yapılabilir
 
 
 
-    // Katılımcı bilgilerini hazırla
     let attendeeName = null;
     let attendeeEmail = null;
     let attendeePhone = null;
@@ -1072,15 +987,11 @@ const updateAppointment = async (req, res) => {
       }
     }
 
-    // Tarihi doğrudan kullan (DATE tipinde kaydetmek için)
     console.log('Güncellenecek tarih:', date);
 
-    // Çakışma kontrolü (mevcut randevuyu hariç tut) - Sadece aynı kullanıcının randevularını kontrol et
-    // Undefined değerleri kontrol et
     const safeStartTime = normalizedStartTime || null;
     const safeEndTime = normalizedEndTime || null;
     
-    // Randevu sahibinin ID'sini al (güncellenen randevunun sahibi)
     const appointmentOwnerId = existingAppointment[0].user_id;
     
 
@@ -1100,12 +1011,10 @@ const updateAppointment = async (req, res) => {
       });
     }
 
-    // Görünürlük ayarlarını hazırla
     const visibleToAllValue = visible_to_all || false;
     const visibleUsersValue = visibleToUsers || visible_to_users || null;
     const visibleUsersJson = visibleUsersValue ? JSON.stringify(visibleUsersValue) : null;
 
-    // Invitees ve attendees JSON verilerini hazırla
     const inviteesJson = invitees && invitees.length > 0 
       ? JSON.stringify(invitees.map(contact => ({
           name: contact.name,
@@ -1174,14 +1083,12 @@ const updateAppointment = async (req, res) => {
     console.log('Update Result:', updateResult);
     console.log('Affected Rows:', updateResult.affectedRows);
 
-    // Status değişikliği kontrolü ve bildirim gönderme
     const oldStatus = existingAppointment[0].status;
     const newStatus = status || 'SCHEDULED';
     
     if (oldStatus !== newStatus) {
       console.log(`Status değişikliği algılandı: ${oldStatus} -> ${newStatus}`);
       
-      // Eğer randevu iptal edildiyse hatırlatmaları da iptal et
       if (newStatus === 'CANCELLED') {
         try {
           await reminderService.cancelReminder(appointmentId);
@@ -1191,9 +1098,7 @@ const updateAppointment = async (req, res) => {
         }
       }
       
-      // Status değişikliği bildirimini gönder
       try {
-        // Randevu verilerini hazırla
         const appointmentData = {
           date,
           startTime,
@@ -1224,7 +1129,6 @@ const updateAppointment = async (req, res) => {
       }
     }
 
-    // Aktivite kaydı oluştur
     try {
       const user = req.user;
       await logActivity(
@@ -1258,7 +1162,6 @@ const updateAppointment = async (req, res) => {
       console.error('Aktivite kaydetme hatası:', activityError);
     }
 
-    // Güncellenmiş randevuyu getir
     const [updatedAppointment] = await db.execute(`
       SELECT 
         a.*,
@@ -1269,20 +1172,16 @@ const updateAppointment = async (req, res) => {
       WHERE a.id = ?
     `, [appointmentId]);
 
-    // Hatırlatıcı güncelleme
     if (reminder_enabled && reminder_datetime) {
       try {
-        // Önce mevcut hatırlatıcıları sil
         await db.execute(
           'DELETE FROM appointment_reminders WHERE appointment_id = ?',
           [appointmentId]
         );
         
-        // Yeni hatırlatıcı ekle (geçmiş tarih kontrolü)
         const reminderDate = new Date(reminder_datetime);
         const currentTime = new Date();
         
-        // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
         if (reminderDate > currentTime) {
           await db.execute(
             'INSERT INTO appointment_reminders (appointment_id, reminder_datetime, status) VALUES (?, ?, ?)',
@@ -1296,7 +1195,6 @@ const updateAppointment = async (req, res) => {
         console.error('Hatırlatıcı güncelleme hatası:', reminderError);
       }
     } else if (reminder_enabled === false) {
-      // Hatırlatıcı devre dışı bırakıldıysa mevcut hatırlatıcıları sil
       try {
         await db.execute(
           'DELETE FROM appointment_reminders WHERE appointment_id = ?',
@@ -1308,20 +1206,17 @@ const updateAppointment = async (req, res) => {
       }
     }
 
-    // Socket.IO ile real-time güncelleme gönder
     try {
       const io = getIO();
       if (io) {
         const appointment = updatedAppointment[0];
         
-        // Randevu sahibine gönder
         io.to(`user-${userId}`).emit('appointment-updated', {
           appointment: appointment,
           message: 'Randevu güncellendi'
         });
         console.log(`Socket.IO appointment-updated event kullanıcı ${userId} odasına gönderildi`);
 
-        // Görünürlük listesindeki kullanıcılara da gönder
         if (appointment.visible_to_users) {
           try {
             const visibleUsers = JSON.parse(appointment.visible_to_users);
@@ -1341,7 +1236,6 @@ const updateAppointment = async (req, res) => {
           }
         }
 
-        // Tüm kullanıcılara görünürse herkese gönder
         if (appointment.visible_to_all) {
           io.emit('appointment-updated', {
             appointment: appointment,
@@ -1354,7 +1248,6 @@ const updateAppointment = async (req, res) => {
       console.error('Socket.IO event gönderme hatası:', socketError);
     }
 
-    // Hatırlatma kaydı oluştur (eğer reminderEnabled true ve reminderDateTime varsa)
     if (reminderEnabled && reminderDateTime) {
       try {
         console.log('📅 Hatırlatma zamanlanıyor:', {
@@ -1365,13 +1258,11 @@ const updateAppointment = async (req, res) => {
           appointmentTime: normalizedStartTime
         });
         
-        // Önce mevcut hatırlatmaları sil
         await db.execute(
           'DELETE FROM appointment_reminders WHERE appointment_id = ?',
           [appointmentId]
         );
         
-        // Türkiye saati için +3 saat ekle
         const reminderDateTimeWithTimezone = new Date(new Date(reminderDateTime).getTime() + (3 * 60 * 60 * 1000));
         const reminderTimeForDB = reminderDateTimeWithTimezone.toISOString().slice(0, 19).replace('T', ' ');
         
@@ -1379,8 +1270,6 @@ const updateAppointment = async (req, res) => {
         console.log('⏰ +3 saat eklenmiş:', reminderDateTimeWithTimezone.toISOString());
         console.log('⏰ DB formatı:', reminderTimeForDB);
         
-        // Geçmiş zaman kontrolü - hatırlatma zamanı şu anki zamandan önce olmamalı
-        // Türkiye saati için doğru karşılaştırma
         const currentTimeUTC = new Date();
         const reminderTimeUTC = new Date(reminderDateTime);
         
@@ -1393,9 +1282,7 @@ const updateAppointment = async (req, res) => {
         
         if (reminderTimeUTC <= currentTimeUTC) {
           console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}, Hatırlatma zamanı: ${reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`);
-          // Geçmiş zamanlı hatırlatma için uyarı mesajı ekle (response'a eklenecek)
         } else {
-          // +3 saat eklenmiş reminderDateTime ile hatırlatma kaydı oluştur
           const [reminderResult] = await db.execute(
             `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 
              VALUES (?, ?, 'scheduled', NOW(), NOW())`,
@@ -1420,7 +1307,6 @@ const updateAppointment = async (req, res) => {
       console.log('⚠️ reminderEnabled true ama reminderDateTime yok');
     } else if (!reminderEnabled) {
       console.log('ℹ️ Hatırlatma etkin değil, hatırlatma kaydedilmedi');
-      // Mevcut hatırlatmaları sil
       try {
         await db.execute(
           'DELETE FROM appointment_reminders WHERE appointment_id = ?',
@@ -1450,13 +1336,11 @@ const updateAppointment = async (req, res) => {
   }
 };
 
-// Randevu sil
 const deleteAppointment = async (req, res) => {
   try {
     const userId = req.user.id;
     const appointmentId = req.params.id;
 
-    // Önce randevunun var olup olmadığını kontrol et
     const [appointmentCheck] = await db.execute(
       'SELECT * FROM appointments WHERE id = ?',
       [appointmentId]
@@ -1473,13 +1357,10 @@ const deleteAppointment = async (req, res) => {
     const user = req.user;
     const appointment = existingAppointment[0];
 
-    // Google Event ID'sini kaydet (frontend'de Google Calendar'dan silmek için)
     const googleEventId = appointment.google_event_id;
     console.log('🔍 Silinecek randevunun Google Event ID:', googleEventId);
 
-    // Yetki sistemi kaldırıldı - görünürlük varsa silme yapılabilir
 
-    // Aktivite kaydı oluştur (silmeden önce)
     try {
       const user = req.user;
       await logActivity(
@@ -1506,7 +1387,6 @@ const deleteAppointment = async (req, res) => {
       console.error('Aktivite kaydetme hatası:', activityError);
     }
 
-    // Hatırlatmaları iptal et
     try {
       await reminderService.cancelReminder(appointmentId);
       console.log('Randevu hatırlatmaları iptal edildi');
@@ -1516,13 +1396,11 @@ const deleteAppointment = async (req, res) => {
 
     await db.execute('DELETE FROM appointments WHERE id = ?', [appointmentId]);
 
-    // Socket.IO ile real-time güncelleme gönder
     try {
       const io = getIO();
       if (io) {
         const appointment = existingAppointment[0];
         
-        // Randevu sahibine gönder
         io.to(`user-${userId}`).emit('appointment-deleted', {
           appointmentId: appointmentId,
           appointment: appointment,
@@ -1530,7 +1408,6 @@ const deleteAppointment = async (req, res) => {
         });
         console.log(`Socket.IO appointment-deleted event kullanıcı ${userId} odasına gönderildi`);
 
-        // Görünürlük listesindeki kullanıcılara da gönder
         if (appointment.visible_to_users) {
           try {
             const visibleUsers = JSON.parse(appointment.visible_to_users);
@@ -1551,7 +1428,6 @@ const deleteAppointment = async (req, res) => {
           }
         }
 
-        // Tüm kullanıcılara görünürse herkese gönder
         if (appointment.visible_to_all) {
           io.emit('appointment-deleted', {
             appointmentId: appointmentId,
@@ -1568,7 +1444,7 @@ const deleteAppointment = async (req, res) => {
     res.json({
       success: true,
       message: 'Randevu başarıyla silindi',
-      googleEventId: googleEventId // Frontend'de Google Calendar'dan silmek için
+      googleEventId: googleEventId 
     });
   } catch (error) {
     console.error('Randevu silme hatası:', error);
@@ -1579,7 +1455,6 @@ const deleteAppointment = async (req, res) => {
   }
 };
 
-// Tarih aralığındaki randevuları getir
 const getAppointmentsByDateRange = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1593,12 +1468,10 @@ const getAppointmentsByDateRange = async (req, res) => {
       });
     }
 
-    // BAŞKAN departmanı, admin veya başkan rolündeki kullanıcılar tüm randevuları görebilir
     const canViewAll = user.role === 'admin' || 
                       user.role === 'başkan' || 
                       user.department === 'BAŞKAN';
 
-    // Tarihleri doğrudan kullan (DATE tipinde karşılaştırma için)
     console.log('🔴 getAppointmentsByDateRange DEBUG - Tarih aralığı:', start, 'ile', end);
     console.log('🔴 getAppointmentsByDateRange DEBUG - User ID:', userId);
     console.log('🔴 getAppointmentsByDateRange DEBUG - Can view all:', canViewAll);
@@ -1606,7 +1479,6 @@ const getAppointmentsByDateRange = async (req, res) => {
     let query, queryParams;
     
     if (canViewAll) {
-      // Tüm randevuları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -1619,7 +1491,6 @@ const getAppointmentsByDateRange = async (req, res) => {
       `;
       queryParams = [start, end];
     } else {
-      // Normal kullanıcı - sadece kendi randevularını veya görünür olanları görebilir (COMPLETED ve CANCELLED olanlar hariç)
       query = `
         SELECT DISTINCT
           a.*,
@@ -1645,10 +1516,8 @@ const getAppointmentsByDateRange = async (req, res) => {
     
     const [appointments] = await db.execute(query, queryParams);
     
-    // JSON verilerini parse et
     for (let appointment of appointments) {
       try {
-        // Güvenli JSON parse için yardımcı fonksiyon
         const safeJsonParse = (jsonString) => {
           if (!jsonString || jsonString === null || jsonString === '') {
             return [];
@@ -1684,7 +1553,6 @@ const getAppointmentsByDateRange = async (req, res) => {
   }
 };
 
-// Kişilerin önceki randevularını getir
 const getInviteePreviousAppointments = async (req, res) => {
   try {
     const { inviteeEmails, currentDate, currentTime, page = 1, limit = 5 } = req.body;
@@ -1701,11 +1569,8 @@ const getInviteePreviousAppointments = async (req, res) => {
 
     const offset = (page - 1) * parseInt(limit);
     
-    // JSON_CONTAINS kullanarak invitees alanında e-posta arama
     const emailConditions = inviteeEmails.map(() => 'JSON_SEARCH(a.invitees, "one", ?, NULL, "$[*].email") IS NOT NULL').join(' OR ');
     
-    // Ana sorgu - önceki randevuları getir (JSON invitees alanından)
-    // Tarih ve saat kontrolü: ya önceki tarihte ya da aynı tarihte ama önceki saatte
     const query = `
       SELECT DISTINCT
         a.id,
@@ -1730,7 +1595,6 @@ const getInviteePreviousAppointments = async (req, res) => {
       LIMIT ? OFFSET ?
     `;
 
-    // Toplam sayı sorgusu
     const countQuery = `
       SELECT COUNT(DISTINCT a.id) as total
       FROM appointments a
@@ -1747,7 +1611,6 @@ const getInviteePreviousAppointments = async (req, res) => {
     console.log('Found appointments:', appointments.length);
     console.log('Total count:', countResult[0]?.total || 0);
 
-    // Davetli bilgilerini formatla ve ek bilgiler ekle
     const formattedAppointments = appointments.map(appointment => {
       let invitees = [];
       try {
@@ -1761,7 +1624,6 @@ const getInviteePreviousAppointments = async (req, res) => {
         invitees = [];
       }
       
-      // Tarih formatını iyileştir
       const appointmentDate = new Date(appointment.date);
       const now = new Date();
       const diffTime = now - appointmentDate;
@@ -1840,7 +1702,6 @@ const getAppointmentById = async (req, res) => {
 
     const user = req.user;
     
-    // BAŞKAN departmanı, admin veya başkan rolündeki kullanıcılar tüm randevuları görebilir
     const canViewAll = user.role === 'admin' || 
                       user.role === 'başkan' || 
                       user.department === 'BAŞKAN';
@@ -1848,7 +1709,6 @@ const getAppointmentById = async (req, res) => {
     let query, queryParams;
     
     if (canViewAll) {
-      // Tüm randevuları görebilir
       query = `
         SELECT DISTINCT
           a.*,
@@ -1862,7 +1722,6 @@ const getAppointmentById = async (req, res) => {
       `;
       queryParams = [id];
     } else {
-      // Normal kullanıcı - sadece kendi randevularını veya görünür olanları görebilir
       query = `
         SELECT DISTINCT
           a.*,
@@ -1896,13 +1755,10 @@ const getAppointmentById = async (req, res) => {
       });
     }
 
-    // Güvenli JSON parse için yardımcı fonksiyon
     const safeJsonParse = (jsonData) => {
-      // Eğer zaten object/array ise direkt döndür
       if (typeof jsonData === 'object' && jsonData !== null) {
         return Array.isArray(jsonData) ? jsonData : [jsonData];
       }
-      // String ise parse et
       if (typeof jsonData === 'string') {
         if (!jsonData || jsonData === null || jsonData === '') {
           return [];
@@ -1916,16 +1772,13 @@ const getAppointmentById = async (req, res) => {
       return [];
     };
 
-    // İlk (ve tek) randevuyu al
     const appointmentData = appointments[0];
     
-    // JSON verilerini parse et
     let invitees = [];
     let attendees = [];
     let visibleUsers = [];
     
     try {
-      // Debug için invitees logla (PARSE ÖNCESI)
       if (appointmentData.id === 11) { // Sizin randevunuzun ID'si
         console.log('=== BACKEND INVITEES DEBUG (Appointment ID: 11) ===');
         console.log('PARSE ÖNCESI:');
@@ -1941,7 +1794,6 @@ const getAppointmentById = async (req, res) => {
       invitees = safeJsonParse(appointmentData.invitees);
       visibleUsers = safeJsonParse(appointmentData.visible_to_users);
       
-      // Debug için invitees logla (PARSE SONRASI)
       if (appointmentData.id === 11) { // Sizin randevunuzun ID'si
         console.log('PARSE SONRASI:');
         console.log('Parsed invitees:', invitees);
@@ -1957,7 +1809,6 @@ const getAppointmentById = async (req, res) => {
       console.error('JSON parse hatası (getAppointmentById):', error);
     }
 
-    // Randevu hatırlatma bilgilerini getir
     const [reminders] = await db.execute(
       'SELECT id, reminder_time, status, sent_at, created_at FROM appointment_reminders WHERE appointment_id = ? ORDER BY reminder_time DESC LIMIT 1',
       [id]
@@ -1993,14 +1844,12 @@ const getAppointmentById = async (req, res) => {
   }
 };
 
-// Hatırlatma yeniden gönder (manuel saat ile)
 const resendReminder = async (req, res) => {
   try {
     const userId = req.user.id;
     const appointmentId = req.params.id;
     const { reminderDateTime } = req.body; // Manuel saat girişi
 
-    // Randevunun sahibi mi kontrol et
     const [existingAppointment] = await db.execute(
       'SELECT * FROM appointments WHERE id = ? AND user_id = ?',
       [appointmentId, userId]
@@ -2013,7 +1862,6 @@ const resendReminder = async (req, res) => {
       });
     }
 
-    // Mevcut hatırlatma bilgisini getir
     const [reminders] = await db.execute(
       'SELECT * FROM appointment_reminders WHERE appointment_id = ? ORDER BY reminder_time DESC LIMIT 1',
       [appointmentId]
@@ -2028,7 +1876,6 @@ const resendReminder = async (req, res) => {
 
     const reminder = reminders[0];
 
-    // Eğer hatırlatma henüz gönderilmediyse hata döndür
     if (reminder.status === 'scheduled') {
       return res.status(400).json({
         success: false,
@@ -2039,10 +1886,8 @@ const resendReminder = async (req, res) => {
     let reminderTime;
     
     if (reminderDateTime) {
-      // Manuel saat girişi varsa kullan
       reminderTime = reminderDateTime;
       
-      // Geçmiş zaman kontrolü
       if (new Date(reminderTime) <= new Date()) {
         return res.status(400).json({
           success: false,
@@ -2050,18 +1895,15 @@ const resendReminder = async (req, res) => {
         });
       }
     } else {
-      // Manuel saat yoksa hemen gönder
       reminderTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
     }
 
-    // Yeni hatırlatma kaydı oluştur
     const [result] = await db.execute(
       `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 
        VALUES (?, ?, 'scheduled', NOW(), NOW())`,
       [appointmentId, reminderTime]
     );
 
-    // Eğer hemen gönder ise
     if (!reminderDateTime) {
       const reminderService = require('../services/reminderService');
       const newReminder = {
@@ -2091,14 +1933,12 @@ const resendReminder = async (req, res) => {
   }
 };
 
-// Hatırlatma zamanını güncelle
 const updateReminderTime = async (req, res) => {
   try {
     const userId = req.user.id;
     const appointmentId = req.params.id;
     const { reminderValue, reminderUnit } = req.body;
 
-    // Randevunun sahibi mi kontrol et
     const [existingAppointment] = await db.execute(
       'SELECT * FROM appointments WHERE id = ? AND user_id = ?',
       [appointmentId, userId]
@@ -2113,13 +1953,11 @@ const updateReminderTime = async (req, res) => {
 
     const appointment = existingAppointment[0];
 
-    // Mevcut henüz gönderilmemiş hatırlatmaları iptal et
     await db.execute(
       'UPDATE appointment_reminders SET status = "cancelled", updated_at = NOW() WHERE appointment_id = ? AND status = "scheduled"',
       [appointmentId]
     );
 
-    // Yeni hatırlatma zamanla
     const reminderService = require('../services/reminderService');
     const success = await reminderService.scheduleReminder(
       appointmentId,
@@ -2128,7 +1966,6 @@ const updateReminderTime = async (req, res) => {
     );
 
     if (success && success.success) {
-      // Randevu tablosundaki hatırlatma bilgilerini de güncelle
       await db.execute(
         'UPDATE appointments SET reminder_value = ?, reminder_unit = ?, updated_at = NOW() WHERE id = ?',
         [reminderValue, reminderUnit, appointmentId]
@@ -2155,7 +1992,6 @@ const updateReminderTime = async (req, res) => {
   }
 };
 
-// Randevu istatistikleri getir
 const getAppointmentStats = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -2166,7 +2002,6 @@ const getAppointmentStats = async (req, res) => {
     let colors = ['#A7F3D0', '#6EE7B7', '#34D399', '#10B981', '#059669', '#047857', '#065F46'];
     
     if (period === 'YILLIK') {
-      // Yıllık görünüm - Son 12 ay
       const monthNames = ['OCA', 'ŞUB', 'MAR', 'NİS', 'MAY', 'HAZ', 'TEM', 'AĞU', 'EYL', 'EKİ', 'KAS', 'ARA'];
       colors = ['#A7F3D0', '#6EE7B7', '#34D399', '#10B981', '#059669', '#047857', '#065F46', '#A7F3D0', '#6EE7B7', '#34D399', '#10B981', '#059669'];
       
@@ -2187,7 +2022,6 @@ const getAppointmentStats = async (req, res) => {
         });
       }
     } else if (period === 'AYLIK') {
-      // Aylık görünüm - Son 30 gün (haftalık gruplar)
       const weekNames = ['1. HAFTA', '2. HAFTA', '3. HAFTA', '4. HAFTA'];
       colors = ['#A7F3D0', '#6EE7B7', '#34D399', '#10B981'];
       
@@ -2210,10 +2044,8 @@ const getAppointmentStats = async (req, res) => {
         });
       }
     } else {
-      // Varsayılan haftalık görünüm - Son 7 gün (günlük)
       const dayNames = ['PZT', 'SAL', 'ÇAR', 'PER', 'CUM', 'CMT', 'PZR'];
       
-      // Bu haftanın Pazartesi'sini bul
       const currentDay = today.getDay();
       const mondayOffset = currentDay === 0 ? 6 : currentDay - 1; // Pazar = 0, Pazartesi = 1
       const monday = new Date(today);
@@ -2237,7 +2069,6 @@ const getAppointmentStats = async (req, res) => {
       }
     }
     
-    // Toplam randevu sayısını getir (TÜM RANDEVULAR)
     const [totalResult] = await db.execute(
       'SELECT COUNT(*) as total FROM appointments'
     );
@@ -2261,7 +2092,6 @@ const getAppointmentStats = async (req, res) => {
   }
 };
 
-// Status değişikliği bildirim fonksiyonu
 const sendStatusChangeNotification = async (
   appointmentId,
   title,
@@ -2285,7 +2115,6 @@ const sendStatusChangeNotification = async (
       smsNotificationEnabled
     });
 
-    // Status'ları Türkçe'ye çevir
     const statusTranslations = {
       'SCHEDULED': 'Planlandı',
       'CONFIRMED': 'Onaylandı',
@@ -2297,7 +2126,6 @@ const sendStatusChangeNotification = async (
     const oldStatusText = statusTranslations[oldStatus] || oldStatus;
     const newStatusText = statusTranslations[newStatus] || newStatus;
 
-    // Bildirim mesajını oluştur
     let notificationMessage = '';
     if (newStatus === 'RESCHEDULED') {
       notificationMessage = `"${title}" randevunuz yeniden planlandı.`;
@@ -2311,16 +2139,13 @@ const sendStatusChangeNotification = async (
       notificationMessage = `"${title}" randevunuzun durumu "${oldStatusText}" den "${newStatusText}" olarak değiştirildi.`;
     }
 
-    // E-posta bildirimi gönder
     if (emailNotificationEnabled) {
       const emailRecipients = [];
       
-      // Attendee email'i varsa ekle
       if (attendeeEmail) {
         emailRecipients.push(attendeeEmail);
       }
       
-      // Invitees email'lerini ekle
       if (invitees && Array.isArray(invitees)) {
         invitees.forEach(invitee => {
           if (invitee.email && !emailRecipients.includes(invitee.email)) {
@@ -2329,7 +2154,6 @@ const sendStatusChangeNotification = async (
         });
       }
       
-      // Visible users email'lerini ekle
       if (visibleToUsers && Array.isArray(visibleToUsers)) {
         visibleToUsers.forEach(user => {
           if (user.email && !emailRecipients.includes(user.email)) {
@@ -2338,13 +2162,11 @@ const sendStatusChangeNotification = async (
         });
       }
 
-      // E-posta gönder
       for (const email of emailRecipients) {
         try {
           let emailSubject = 'Randevu Durumu Değişikliği';
           let emailHtml = '';
 
-          // Özel template'ler için kontrol
           if (newStatus === 'CANCELLED' && appointmentData) {
             emailSubject = 'Randevu İptal Edildi - SULTANGAZİ Belediyesi';
             emailHtml = emailService.generateAppointmentCancelledEmail({
@@ -2372,7 +2194,6 @@ const sendStatusChangeNotification = async (
               title
             });
           } else if (appointmentData) {
-            // Genel randevu güncellemesi template'i
             emailSubject = 'Randevu Güncellendi - SULTANGAZİ Belediyesi';
             emailHtml = emailService.generateAppointmentUpdatedEmail({
               ...appointmentData,
@@ -2380,7 +2201,6 @@ const sendStatusChangeNotification = async (
               updateReason: `Durum "${oldStatusText}" den "${newStatusText}" olarak değiştirildi`
             });
           } else {
-            // Fallback basit template
             emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2 style="color: #3C02AA;">Randevu Durumu Değişikliği</h2>
@@ -2408,16 +2228,13 @@ const sendStatusChangeNotification = async (
       }
     }
 
-    // SMS bildirimi gönder
     if (smsNotificationEnabled) {
       const smsRecipients = [];
       
-      // Attendee phone'u varsa ekle
       if (attendeePhone) {
         smsRecipients.push(attendeePhone);
       }
       
-      // Invitees phone'larını ekle
       if (invitees && Array.isArray(invitees)) {
         invitees.forEach(invitee => {
           if (invitee.phone && !smsRecipients.includes(invitee.phone)) {
@@ -2426,7 +2243,6 @@ const sendStatusChangeNotification = async (
         });
       }
       
-      // Visible users phone'larını ekle
       if (visibleToUsers && Array.isArray(visibleToUsers)) {
         visibleToUsers.forEach(user => {
           if (user.phone && !smsRecipients.includes(user.phone)) {
@@ -2435,7 +2251,6 @@ const sendStatusChangeNotification = async (
         });
       }
 
-      // SMS gönder
       for (const phone of smsRecipients) {
         try {
           await smsService.sendSMS(phone, notificationMessage);

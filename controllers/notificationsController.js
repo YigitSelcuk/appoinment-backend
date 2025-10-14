@@ -1,6 +1,5 @@
 const { promisePool: db } = require('../config/database');
 
-// Bildirim oluştur
 exports.createNotification = async (userId, title, message, type = 'info', relatedId = null, relatedType = null) => {
   try {
     const [result] = await db.execute(
@@ -14,7 +13,6 @@ exports.createNotification = async (userId, title, message, type = 'info', relat
   }
 };
 
-// Kullanıcının bildirimlerini getir
 exports.getNotifications = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -23,7 +21,6 @@ exports.getNotifications = async (req, res) => {
     const offset = (page - 1) * limit;
     const unreadOnly = req.query.unread_only === 'true';
 
-    // Parametrelerin sayısal olduğundan emin ol
     const safeLimit = Number.isInteger(limit) ? limit : 20;
     const safeOffset = Number.isInteger(offset) ? offset : 0;
 
@@ -34,20 +31,17 @@ exports.getNotifications = async (req, res) => {
       whereClause += ' AND is_read = FALSE';
     }
 
-    // Toplam bildirim sayısını al
     const [countResult] = await db.execute(
       `SELECT COUNT(*) as total FROM notifications ${whereClause}`,
       queryParams
     );
     const total = countResult[0].total;
 
-    // Bildirimleri getir
     const [notifications] = await db.execute(
       `SELECT * FROM notifications ${whereClause} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
       queryParams
     );
 
-    // Okunmamış bildirim sayısını al
     const [unreadResult] = await db.execute(
       'SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = ? AND is_read = FALSE',
       [userId]
@@ -76,7 +70,6 @@ exports.getNotifications = async (req, res) => {
   }
 };
 
-// Bildirimi okundu olarak işaretle
 exports.markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
@@ -107,7 +100,6 @@ exports.markAsRead = async (req, res) => {
   }
 };
 
-// Tüm bildirimleri okundu olarak işaretle
 exports.markAllAsRead = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -130,7 +122,6 @@ exports.markAllAsRead = async (req, res) => {
   }
 };
 
-// Bildirimi sil
 exports.deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
@@ -161,7 +152,6 @@ exports.deleteNotification = async (req, res) => {
   }
 };
 
-// Okunmamış bildirim sayısını getir
 exports.getUnreadCount = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -186,7 +176,6 @@ exports.getUnreadCount = async (req, res) => {
   }
 };
 
-// Bildirim türlerine göre getir
 exports.getNotificationsByType = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -195,18 +184,15 @@ exports.getNotificationsByType = async (req, res) => {
     const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
     const offset = (page - 1) * limit;
 
-    // Parametrelerin sayısal olduğundan emin ol
     const safeLimit = Number.isInteger(limit) ? limit : 20;
     const safeOffset = Number.isInteger(offset) ? offset : 0;
 
-    // Toplam bildirim sayısını al
     const [countResult] = await db.execute(
       'SELECT COUNT(*) as total FROM notifications WHERE user_id = ? AND type = ?',
       [userId, type]
     );
     const total = countResult[0].total;
 
-    // Bildirimleri getir
     const [notifications] = await db.execute(
       `SELECT * FROM notifications WHERE user_id = ? AND type = ? ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
       [userId, type]

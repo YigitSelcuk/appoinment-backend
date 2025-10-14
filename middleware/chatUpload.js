@@ -2,13 +2,11 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Chat uploads klasörünü oluştur
 const uploadsDir = path.join(__dirname, '../uploads/chat');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Multer konfigürasyonu
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadsDir);
@@ -22,17 +20,13 @@ const storage = multer.diskStorage({
   }
 });
 
-// Dosya filtresi
 const fileFilter = (req, file, cb) => {
-  // İzin verilen dosya türleri
   const allowedMimeTypes = [
-    // Resimler
     'image/jpeg',
     'image/jpg', 
     'image/png',
     'image/gif',
     'image/webp',
-    // PDF
     'application/pdf',
     // Excel
     'application/vnd.ms-excel',
@@ -58,7 +52,6 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Multer instance
 const chatUpload = multer({
   storage: storage,
   fileFilter: fileFilter,

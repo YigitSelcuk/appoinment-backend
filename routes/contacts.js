@@ -20,10 +20,8 @@ const {
   sendBulkSMSByCategories
 } = require('../controllers/contactsController');
 
-// Tüm route'lar için authentication gerekli
 router.use(authenticateToken);
 
-// Kategoriler (spesifik route'lar önce gelmelidir)
 router.get('/categories-stats', getCategoriesWithStats);
 router.get('/categories-all', getAllCategoriesForDropdown);
 router.put('/move-category', moveContactsBetweenCategories);

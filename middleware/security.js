@@ -3,23 +3,21 @@ const helmet = require('helmet');
 const { body, validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 
-// Rate limiting - Brute force saldırılarına karşı
 const loginLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 dakika
-  max: 5, // 5 dakikada maksimum 5 deneme
+  windowMs: 5 * 60 * 1000, 
+  max: 5, 
   message: {
     success: false,
     message: 'Çok fazla giriş denemesi yapıldı. 5 dakika sonra tekrar deneyin.'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // Başarılı girişleri sayma
+  skipSuccessfulRequests: true, x
 });
 
-// Genel API rate limiting
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 dakika
-  max: 1000, // 1 dakikada maksimum 300 istek
+  max: 1000, 
   message: {
     success: false,
     message: 'Çok fazla istek gönderildi. Lütfen daha sonra tekrar deneyin.'
@@ -28,10 +26,9 @@ const apiLimiter = rateLimit({
   legacyHeaders: false
 });
 
-// Mesajlaşma için özel rate limiting
 const messagingLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 dakika
-  max: 1200, // 1 dakikada maksimum 120 mesaj
+  max: 1200, 
   message: {
     success: false,
     message: 'Çok fazla mesaj gönderildi. Lütfen daha yavaş yazın.'
@@ -40,7 +37,6 @@ const messagingLimiter = rateLimit({
   legacyHeaders: false
 });
 
-// Helmet güvenlik başlıkları
 const securityHeaders = helmet({
   contentSecurityPolicy: {
     directives: {
@@ -70,7 +66,6 @@ const securityHeaders = helmet({
   referrerPolicy: { policy: "strict-origin-when-cross-origin" }
 });
 
-// Input validation
 const loginValidation = [
   body('email')
     .isEmail()
@@ -111,7 +106,6 @@ const registerValidation = [
     .withMessage('Geçersiz rol')
 ];
 
-// Validation error handler
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -127,14 +121,11 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-// IP whitelist middleware (belediye için)
 const ipWhitelist = (req, res, next) => {
-  // Geliştirme ortamında tüm IP'lere izin ver
   if (process.env.NODE_ENV !== 'production') {
     return next();
   }
   
-  // Prodüksiyon ortamında sadece belirli IP'lere izin ver
   const allowedIPs = process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(',') : [];
   const clientIP = req.ip || req.connection.remoteAddress;
   
@@ -148,7 +139,6 @@ const ipWhitelist = (req, res, next) => {
   next();
 };
 
-// JWT Authentication middleware (Enhanced Security)
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
@@ -160,7 +150,6 @@ const authenticateToken = (req, res, next) => {
     });
   }
 
-  // Token blacklist kontrolü
   if (tokenBlacklist.has(token)) {
     return res.status(401).json({
       success: false,
@@ -184,7 +173,6 @@ const authenticateToken = (req, res, next) => {
       });
     }
     
-    // Access token kontrolü
     if (user.type !== 'access') {
       return res.status(403).json({
         success: false,
@@ -197,17 +185,13 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Rate Limiting Middleware
 const rateLimitStore = new Map();
 
-// JWT Token Blacklist
 const tokenBlacklist = new Set();
 
-// Suspicious IP tracking
 const suspiciousIPs = new Map();
 const blockedIPs = new Set();
 
-// API endpoint protection
 const sensitiveEndpoints = [
   '/api/users',
   '/api/admin',
@@ -216,19 +200,15 @@ const sensitiveEndpoints = [
   '/api/tasks/admin'
 ];
 
-// Request pattern analysis
 const requestPatterns = new Map();
 
 // Token blacklist temizleme (her 1 saatte bir)
 setInterval(() => {
-  // Expired tokenları blacklist'ten temizle
-  // Bu basit implementasyon, production'da Redis kullanılmalı
   if (tokenBlacklist.size > 10000) {
     tokenBlacklist.clear();
   }
 }, 60 * 60 * 1000);
 
-// Suspicious activity detection
 const detectSuspiciousActivity = (req, res, next) => {
   const clientIP = req.ip;
   const userAgent = req.get('User-Agent') || '';
@@ -263,13 +243,11 @@ const detectSuspiciousActivity = (req, res, next) => {
     headers: req.headers
   });
   
-  // Suspicious pattern kontrolü
   const isSuspicious = suspiciousPatterns.some(pattern => 
     pattern.test(requestData) || pattern.test(userAgent)
   );
   
   if (isSuspicious) {
-    // Suspicious activity kaydet
     const suspiciousData = suspiciousIPs.get(clientIP) || { count: 0, firstSeen: Date.now() };
     suspiciousData.count++;
     suspiciousData.lastSeen = Date.now();
@@ -291,15 +269,13 @@ const detectSuspiciousActivity = (req, res, next) => {
   next();
 };
 
-// Request frequency analysis
 const requestFrequencyAnalysis = (req, res, next) => {
   const clientIP = req.ip;
   const now = Date.now();
-  const windowMs = 30 * 1000; // 30 saniye
+  const windowMs = 30 * 1000; 
   
   const pattern = requestPatterns.get(clientIP) || { requests: [], blocked: false };
   
-  // Eski requestleri temizle
   pattern.requests = pattern.requests.filter(time => now - time < windowMs);
   pattern.requests.push(now);
   
@@ -320,7 +296,6 @@ const requestFrequencyAnalysis = (req, res, next) => {
   next();
 };
 
-// Sensitive endpoint protection
 const protectSensitiveEndpoints = (req, res, next) => {
   const endpoint = req.originalUrl;
   const method = req.method;
@@ -379,7 +354,6 @@ const protectSensitiveEndpoints = (req, res, next) => {
   next();
 };
 
-// Cleanup functions
 const cleanupSecurityData = () => {
   const now = Date.now();
   const maxAge = 24 * 60 * 60 * 1000; // 24 saat
@@ -391,7 +365,6 @@ const cleanupSecurityData = () => {
     }
   }
   
-  // Eski request pattern kayıtlarını temizle
   for (const [ip, pattern] of requestPatterns.entries()) {
     if (pattern.requests.length === 0) {
       requestPatterns.delete(ip);
@@ -399,10 +372,8 @@ const cleanupSecurityData = () => {
   }
   
   // Blocked IP'leri 24 saat sonra temizle (manuel unblock için)
-  // Production'da bu daha uzun olabilir
 };
 
-// Her saat cleanup çalıştır
 setInterval(cleanupSecurityData, 60 * 60 * 1000);
 
 const customRateLimit = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
@@ -417,7 +388,6 @@ const customRateLimit = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
     
     const requests = rateLimitStore.get(clientIP);
     
-    // Eski istekleri temizle
     const validRequests = requests.filter(timestamp => timestamp > windowStart);
     
     if (validRequests.length >= maxRequests) {
@@ -435,21 +405,19 @@ const customRateLimit = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
   };
 };
 
-// Login Rate Limiting (Daha sıkı)
 const loginRateLimit = customRateLimit(5, 15 * 60 * 1000); // 15 dakikada 5 deneme
 
-// Session güvenliği
 const sessionConfig = {
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS'de true
+    secure: process.env.NODE_ENV === 'production', 
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 saat
+    maxAge: 24 * 60 * 60 * 1000, 
     sameSite: 'strict'
   },
-  name: 'belediye.sid' // Varsayılan session adını değiştir
+  name: 'belediye.sid'
 };
 
 module.exports = {
@@ -469,7 +437,6 @@ module.exports = {
   detectSuspiciousActivity,
   requestFrequencyAnalysis,
   protectSensitiveEndpoints,
-  // Require admin role middleware
   requireAdmin: (req, res, next) => {
     if (!req.user || req.user.role !== 'admin') {
       return res.status(403).json({
@@ -480,7 +447,6 @@ module.exports = {
     next();
   },
   
-  // Require management permission middleware
   requireManagement: (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -489,12 +455,10 @@ module.exports = {
       });
     }
 
-    // Admin, başkan rolü veya BAŞKAN departmanı her zaman geçer
     if (req.user.role === 'admin' || req.user.role === 'başkan' || req.user.department === 'BAŞKAN') {
       return next();
     }
 
-    // Kullanıcının management izni var mı kontrol et
     let hasManagementPermission = false;
     
     if (req.user.permissions) {

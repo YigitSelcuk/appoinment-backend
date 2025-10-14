@@ -112,7 +112,6 @@ const getChatRooms = async (req, res) => {
 
     const rawRooms = await db.query(query, [userId, userId, userId, userId]);
     
-    // Response'u organize et
     const rooms = rawRooms.map(room => {
       const result = {
         room_id: room.room_id,
@@ -137,7 +136,6 @@ const getChatRooms = async (req, res) => {
         last_seen_at: room.last_seen_at
       };
       
-      // Direct chat için participants bilgisini ekle
       if (room.room_type === 'direct' && room.other_user_id) {
         result.participants = [
           {
@@ -177,7 +175,6 @@ const getChatRooms = async (req, res) => {
   }
 };
 
-// Yeni direct chat oluştur veya mevcut olanı getir
 const createOrGetDirectChat = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -197,7 +194,6 @@ const createOrGetDirectChat = async (req, res) => {
       });
     }
 
-    // Mevcut direct chat var mı kontrol et
     const existingChatQuery = `
       SELECT cr.id as room_id
       FROM chat_rooms cr
@@ -229,20 +225,17 @@ const createOrGetDirectChat = async (req, res) => {
       });
     }
 
-    // Yeni direct chat oluştur
     const connection = await db.getConnection();
     
     try {
       await connection.beginTransaction();
 
-      // Chat odası oluştur
       const [roomResult] = await connection.execute(
         'INSERT INTO chat_rooms (type, created_by) VALUES (?, ?)',
         ['direct', userId]
       );
       const roomId = roomResult.insertId;
 
-      // Katılımcıları ekle
       await connection.execute(
         'INSERT INTO chat_participants (room_id, user_id, role) VALUES (?, ?, ?), (?, ?, ?)',
         [roomId, userId, 'admin', roomId, otherUserId, 'member']
@@ -251,13 +244,10 @@ const createOrGetDirectChat = async (req, res) => {
       await connection.commit();
       connection.release();
 
-      // Aktivite logla
       await logActivity(req, 'CREATE', 'chat_rooms', roomId, `Yeni direct chat oluşturuldu`);
 
-      // Socket.IO ile chat listesi güncellemesini bildir
       const io = getIO();
       if (io) {
-        // Her iki kullanıcıya da chat listesi güncellemesini bildir
         io.to(`user-${userId}`).emit('chat-list-update', { 
           type: 'new_chat', 
           room_id: roomId,
@@ -294,7 +284,6 @@ const createOrGetDirectChat = async (req, res) => {
   }
 };
 
-// Grup chat oluştur
 const createGroupChat = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -312,20 +301,17 @@ const createGroupChat = async (req, res) => {
     try {
       await connection.beginTransaction();
 
-      // Grup chat odası oluştur
       const [roomResult] = await connection.execute(
         'INSERT INTO chat_rooms (name, type, description, avatar_url, created_by) VALUES (?, ?, ?, ?, ?)',
         [name, 'group', description, avatarUrl, userId]
       );
       const roomId = roomResult.insertId;
 
-      // Oluşturan kullanıcıyı admin olarak ekle
       await connection.execute(
         'INSERT INTO chat_participants (room_id, user_id, role) VALUES (?, ?, ?)',
         [roomId, userId, 'admin']
       );
 
-      // Diğer katılımcıları ekle
       for (const participantId of participantIds) {
         if (participantId !== userId) {
           await connection.execute(
@@ -338,13 +324,10 @@ const createGroupChat = async (req, res) => {
       await connection.commit();
       connection.release();
 
-      // Aktivite logla
       await logActivity(req, 'CREATE', 'chat_rooms', roomId, `Yeni grup chat oluşturuldu: ${name}`);
 
-      // Socket.IO ile chat listesi güncellemesini bildir
       const io = getIO();
       if (io) {
-        // Tüm katılımcılara chat listesi güncellemesini bildir
         const allParticipants = [userId, ...participantIds.filter(id => id !== userId)];
         allParticipants.forEach(participantId => {
           io.to(`user-${participantId}`).emit('chat-list-update', { 
@@ -383,18 +366,15 @@ const createGroupChat = async (req, res) => {
 // MESAJ İŞLEMLERİ
 // =====================================================
 
-// Chat mesajlarını getir
 const getChatMessages = async (req, res) => {
   try {
     const userId = req.user.id;
     const { roomId } = req.params;
     const { page = 1, limit = 50 } = req.query;
-    // Sayısal değerlere dönüştür ve sınırlandır
     const pageNum = Number(page) > 0 ? Number(page) : 1;
     const limitNum = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.min(200, Number(limit)) : 50;
     const offsetNum = (pageNum - 1) * limitNum;
 
-    // Kullanıcının bu odaya erişimi var mı kontrol et
     const accessCheck = await db.query(
       'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL AND (deleted_at IS NULL OR reopened_at IS NOT NULL)',
       [roomId, userId]
@@ -407,7 +387,6 @@ const getChatMessages = async (req, res) => {
       });
     }
 
-    // Kullanıcının deleted_at ve reopened_at tarihlerini al
     const userParticipant = await db.query(
       'SELECT deleted_at, reopened_at FROM chat_participants WHERE room_id = ? AND user_id = ?',
       [roomId, userId]
@@ -416,7 +395,6 @@ const getChatMessages = async (req, res) => {
     const userDeletedAt = userParticipant[0]?.deleted_at;
     const userReopenedAt = userParticipant[0]?.reopened_at;
 
-    // Basitleştirilmiş query - önce temel mesajları alalım
     let query = `
       SELECT 
         cm.id,
@@ -460,15 +438,12 @@ const getChatMessages = async (req, res) => {
       WHERE cm.room_id = ? 
         AND cm.is_deleted = 0`;
 
-    // Mesaj filtreleme mantığı
     let filterDate = null;
     if (userDeletedAt) {
-      // Eğer chat yeniden açıldıysa (reopened_at varsa), o tarihten sonraki mesajları getir
       if (userReopenedAt) {
         filterDate = userReopenedAt;
       } else {
-        // Chat silinmiş ama henüz yeniden açılmamış, hiç mesaj gösterme
-        query += ` AND 1 = 0`; // Hiçbir mesaj getirme
+        query += ` AND 1 = 0`;
       }
     }
 
@@ -488,12 +463,10 @@ const getChatMessages = async (req, res) => {
 
     const messages = await db.query(query, queryParams);
 
-    // Mesajları düzenle
     const parsedMessages = messages.map(msg => {
       let parsedMetadata = null;
       if (msg.metadata) {
         try {
-          // Eğer string ise parse et, değilse olduğu gibi kullan
           parsedMetadata = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
         } catch (error) {
           console.error('Metadata parse hatası:', error);
@@ -503,14 +476,14 @@ const getChatMessages = async (req, res) => {
       
       return {
         ...msg,
-        reactions: {}, // Şimdilik boş, sonra ekleyebiliriz
+        reactions: {}, 
         metadata: parsedMetadata
       };
     });
 
     res.json({
       success: true,
-      data: parsedMessages.reverse(), // Eski mesajlar önce gelsin
+      data: parsedMessages.reverse(), 
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -528,7 +501,6 @@ const getChatMessages = async (req, res) => {
   }
 };
 
-// Yeni mesaj gönder
 const sendMessage = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -540,7 +512,6 @@ const sendMessage = async (req, res) => {
       metadata 
     } = req.body;
 
-    // Kullanıcının bu odaya erişimi var mı kontrol et
     const accessCheck = await db.query(
       'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
       [roomId, userId]
@@ -560,14 +531,12 @@ const sendMessage = async (req, res) => {
       });
     }
 
-    // Oda katılımcılarını getir (gönderen hariç)
     const participants = await db.query(
       `SELECT user_id FROM chat_participants 
        WHERE room_id = ? AND user_id != ? AND left_at IS NULL`,
       [roomId, userId]
     );
 
-    // Alıcıların chat'ini yeniden aç (deleted_at varsa reopened_at güncelle) - MESAJ KAYDEDİLMEDEN ÖNCE
     for (const participant of participants) {
       await db.query(
         'UPDATE chat_participants SET reopened_at = CURRENT_TIMESTAMP WHERE room_id = ? AND user_id = ? AND deleted_at IS NOT NULL',
@@ -575,7 +544,6 @@ const sendMessage = async (req, res) => {
       );
     }
 
-    // Mesajı veritabanına kaydet
     const result = await db.query(
       `INSERT INTO chat_messages 
        (room_id, sender_id, message_content, message_type, reply_to_message_id, metadata) 
@@ -585,7 +553,6 @@ const sendMessage = async (req, res) => {
 
     const messageId = result.insertId;
 
-    // Her katılımcı için mesaj durumu oluştur
     for (const participant of participants) {
       await db.query(
         'INSERT INTO message_read_status (message_id, user_id, status) VALUES (?, ?, ?)',
@@ -593,7 +560,6 @@ const sendMessage = async (req, res) => {
       );
     }
 
-    // Gönderilen mesajı detaylarıyla birlikte getir
     const messageQuery = `
       SELECT 
         cm.*,
@@ -606,35 +572,30 @@ const sendMessage = async (req, res) => {
 
     const [newMessage] = await db.query(messageQuery, [messageId]);
 
-    // Socket ile real-time mesaj gönder
     const io = getIO();
     console.log('Socket emit başlıyor. Katılımcılar:', participants);
     console.log('Gönderen userId:', userId);
     console.log('Gönderilecek mesaj:', newMessage);
     
-    // Frontend'in beklediği formatta mesaj objesi oluştur
     const messageForSocket = {
       id: newMessage.id,
       room_id: parseInt(roomId),
       sender_id: newMessage.sender_id,
-      content: newMessage.message_content, // message_content -> content
+      content: newMessage.message_content, 
       message_type: newMessage.message_type,
       created_at: newMessage.created_at,
       sender_name: newMessage.sender_name,
       sender_avatar: newMessage.sender_avatar
     };
 
-    // Oda katılımcılarına mesajı gönder
     for (const participant of participants) {
       console.log(`Socket emit: user-${participant.user_id} için new-message gönderiliyor`);
       io.to(`user-${participant.user_id}`).emit('new-message', messageForSocket);
     }
     
-    // Gönderene de mesajı gönder (diğer cihazları için)
     console.log(`Socket emit: user-${userId} için new-message gönderiliyor`);
     io.to(`user-${userId}`).emit('new-message', messageForSocket);
 
-    // Chat listesi güncellemesi için event gönder (okunmamış mesaj sayıları için)
     for (const participant of participants) {
       io.to(`user-${participant.user_id}`).emit('chat-list-update', { 
         type: 'new_message', 
@@ -661,14 +622,12 @@ const sendMessage = async (req, res) => {
   }
 };
 
-// Mesajları okundu olarak işaretle
 const markMessagesAsRead = async (req, res) => {
   try {
     const userId = req.user.id;
     const { roomId } = req.params;
-    const { messageIds } = req.body; // Belirli mesajlar için, yoksa tüm okunmamışlar
+    const { messageIds } = req.body; 
 
-    // Kullanıcının bu odaya erişimi var mı kontrol et
     const accessCheck = await db.query(
       'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
       [roomId, userId]
@@ -684,7 +643,6 @@ const markMessagesAsRead = async (req, res) => {
     let query, params;
 
     if (messageIds && messageIds.length > 0) {
-      // Belirli mesajları okundu işaretle
       const placeholders = messageIds.map(() => '?').join(',');
       query = `
         UPDATE message_read_status 
@@ -693,7 +651,6 @@ const markMessagesAsRead = async (req, res) => {
       `;
       params = [userId, ...messageIds];
     } else {
-      // Odadaki tüm okunmamış mesajları okundu işaretle
       query = `
         UPDATE message_read_status mrs
         JOIN chat_messages cm ON mrs.message_id = cm.id
@@ -721,7 +678,6 @@ const markMessagesAsRead = async (req, res) => {
   }
 };
 
-// Mesaj düzenle
 const editMessage = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -735,7 +691,6 @@ const editMessage = async (req, res) => {
       });
     }
 
-    // Mesajın sahibi mi kontrol et
     const messageCheck = await db.query(
       'SELECT id FROM chat_messages WHERE id = ? AND sender_id = ? AND is_deleted = 0',
       [messageId, userId]
@@ -748,7 +703,6 @@ const editMessage = async (req, res) => {
       });
     }
 
-    // Mesajı güncelle
     await db.query(
       'UPDATE chat_messages SET message_content = ?, is_edited = 1, edited_at = NOW() WHERE id = ?',
       [messageContent, messageId]
@@ -769,14 +723,12 @@ const editMessage = async (req, res) => {
   }
 };
 
-// Mesaj sil
 const deleteMessage = async (req, res) => {
   try {
     const userId = req.user.id;
     const { messageId } = req.params;
     const { deleteType = 'for_me' } = req.body; // 'for_me' veya 'for_everyone'
 
-    // Mesajın sahibi mi kontrol et
     const messageCheck = await db.query(
       'SELECT sender_id, room_id FROM chat_messages WHERE id = ? AND is_deleted = 0',
       [messageId]
@@ -792,7 +744,6 @@ const deleteMessage = async (req, res) => {
     const message = messageCheck[0];
     const isOwner = message.sender_id === userId;
 
-    // Herkes için silme sadece mesaj sahibi yapabilir
     if (deleteType === 'for_everyone' && !isOwner) {
       return res.status(403).json({
         success: false,
@@ -801,13 +752,11 @@ const deleteMessage = async (req, res) => {
     }
 
     if (deleteType === 'for_everyone') {
-      // Herkes için sil - mesajı soft delete yap
       await db.query(
         'UPDATE chat_messages SET is_deleted = 1, deleted_at = NOW() WHERE id = ?',
         [messageId]
       );
     } else {
-      // Sadece kendim için sil - message_deletes tablosuna kaydet
       await db.query(
         'INSERT INTO message_deletes (message_id, user_id, delete_type) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE deleted_at = NOW()',
         [messageId, userId, deleteType]
@@ -833,13 +782,11 @@ const deleteMessage = async (req, res) => {
 // KATILIMCI İŞLEMLERİ
 // =====================================================
 
-// Chat katılımcılarını getir
 const getChatParticipants = async (req, res) => {
   try {
     const userId = req.user.id;
     const { roomId } = req.params;
 
-    // Kullanıcının bu odaya erişimi var mı kontrol et
     const accessCheck = await db.query(
       'SELECT role FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
       [roomId, userId]

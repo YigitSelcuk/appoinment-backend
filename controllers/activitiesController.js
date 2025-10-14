@@ -1,6 +1,5 @@
 const db = require('../config/database');
 
-// Tüm aktiviteleri getir (sayfalama ile)
 const getActivities = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -12,11 +11,9 @@ const getActivities = async (req, res) => {
 
     const userId = req.user?.id || 1;
 
-    // Filtreleme koşulları
     let whereClause = 'WHERE 1=1';
     let queryParams = [];
 
-    // Arama
     if (search) {
       whereClause += ` AND (
         a.user_name LIKE ? OR 
@@ -28,25 +25,21 @@ const getActivities = async (req, res) => {
       queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
     }
 
-    // İşlem türü filtresi
     if (actionType) {
       whereClause += ` AND a.action_type = ?`;
       queryParams.push(actionType);
     }
 
-    // Tablo adı filtresi
     if (tableName) {
       whereClause += ` AND a.table_name = ?`;
       queryParams.push(tableName);
     }
 
-    // Toplam kayıt sayısını al
     const countQuery = `SELECT COUNT(*) as total FROM activities a ${whereClause}`;
     const [countResult] = await db.execute(countQuery, queryParams);
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
-    // Aktiviteleri getir
     const query = `
       SELECT 
         a.*,
@@ -59,12 +52,10 @@ const getActivities = async (req, res) => {
 
     const [activities] = await db.execute(query, queryParams);
 
-    // JSON alanlarını parse et
     const formattedActivities = activities.map(activity => {
       let oldValues = null;
       let newValues = null;
       
-      // old_values parse et
       if (activity.old_values) {
         try {
           oldValues = typeof activity.old_values === 'string' 
@@ -76,7 +67,6 @@ const getActivities = async (req, res) => {
         }
       }
       
-      // new_values parse et
       if (activity.new_values) {
         try {
           newValues = typeof activity.new_values === 'string' 
@@ -119,10 +109,8 @@ const getActivities = async (req, res) => {
   }
 };
 
-// Aktivite kaydet
 const logActivity = async (userId, userName, userEmail, actionType, tableName, recordId, description, oldValues = null, newValues = null, ipAddress = null, userAgent = null) => {
   try {
-    // Türkiye saat dilimi için tarih oluştur
     const now = new Date();
     const turkeyTime = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Istanbul"}));
     const formattedDate = turkeyTime.toISOString().slice(0, 19).replace('T', ' ');
@@ -156,12 +144,10 @@ const logActivity = async (userId, userName, userEmail, actionType, tableName, r
   }
 };
 
-// Aktivite istatistikleri
 const getActivityStats = async (req, res) => {
   try {
     const userId = req.user?.id || 1;
 
-    // Son 30 gün içindeki aktivite sayıları
     const statsQuery = `
       SELECT 
         action_type,
@@ -175,7 +161,6 @@ const getActivityStats = async (req, res) => {
 
     const [stats] = await db.execute(statsQuery);
 
-    // Tablo bazında aktivite sayıları
     const tableStatsQuery = `
       SELECT 
         table_name,
@@ -189,7 +174,6 @@ const getActivityStats = async (req, res) => {
 
     const [tableStats] = await db.execute(tableStatsQuery);
 
-    // Kullanıcı bazında aktivite sayıları
     const userStatsQuery = `
       SELECT 
         user_name,
@@ -224,7 +208,6 @@ const getActivityStats = async (req, res) => {
   }
 };
 
-// Frontend'den aktivite kayıt isteği
 const logActivityEndpoint = async (req, res) => {
   try {
     const { action_type, table_name, record_id, description, old_values, new_values } = req.body;
@@ -270,7 +253,6 @@ const logActivityEndpoint = async (req, res) => {
   }
 };
 
-// MySQL saat dilimi kontrol fonksiyonu
 const checkTimezone = async (req, res) => {
   try {
     const [timezoneResult] = await db.execute(`

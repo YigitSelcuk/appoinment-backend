@@ -1,13 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 
-// Log dizinini oluştur
 const logDir = path.join(__dirname, '../logs');
 if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
 
-// Log seviyeleri
 const LOG_LEVELS = {
   ERROR: 'ERROR',
   WARN: 'WARN',
@@ -16,7 +14,6 @@ const LOG_LEVELS = {
   SECURITY: 'SECURITY'
 };
 
-// Log yazma fonksiyonu
 const writeLog = (level, message, metadata = {}) => {
   const timestamp = new Date().toISOString();
   const logEntry = {
@@ -28,26 +25,21 @@ const writeLog = (level, message, metadata = {}) => {
   
   const logString = JSON.stringify(logEntry) + '\n';
   
-  // Console'a yazdır (development)
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[${timestamp}] ${level}: ${message}`, metadata);
   }
   
-  // Dosyaya yazdır
   const logFile = path.join(logDir, `${level.toLowerCase()}.log`);
   fs.appendFileSync(logFile, logString);
   
-  // Genel log dosyasına da yazdır
   const generalLogFile = path.join(logDir, 'app.log');
   fs.appendFileSync(generalLogFile, logString);
 };
 
-// Security logger middleware
 const securityLogger = (req, res, next) => {
   const originalSend = res.send;
   
   res.send = function(data) {
-    // Güvenlik olaylarını logla
     if (res.statusCode === 401 || res.statusCode === 403) {
       writeLog(LOG_LEVELS.SECURITY, 'Unauthorized access attempt', {
         ip: req.ip,
@@ -59,7 +51,6 @@ const securityLogger = (req, res, next) => {
       });
     }
     
-    // Rate limit aşımlarını logla
     if (res.statusCode === 429) {
       writeLog(LOG_LEVELS.SECURITY, 'Rate limit exceeded', {
         ip: req.ip,
@@ -76,7 +67,6 @@ const securityLogger = (req, res, next) => {
   next();
 };
 
-// Request logger middleware
 const requestLogger = (req, res, next) => {
   const start = Date.now();
   
@@ -96,7 +86,6 @@ const requestLogger = (req, res, next) => {
   next();
 };
 
-// Log temizleme (eski logları sil)
 const cleanupLogs = () => {
   const maxAge = 30 * 24 * 60 * 60 * 1000; // 30 gün
   const now = Date.now();
@@ -117,7 +106,6 @@ const cleanupLogs = () => {
   });
 };
 
-// Aktivite loglama fonksiyonu
 const logActivity = async (req, action, table, recordId, description) => {
   try {
     const userId = req.user ? req.user.id : null;
@@ -138,7 +126,6 @@ const logActivity = async (req, action, table, recordId, description) => {
   }
 };
 
-// Her gün log temizliği yap
 setInterval(cleanupLogs, 24 * 60 * 60 * 1000);
 
 module.exports = {

@@ -1,7 +1,6 @@
 const db = require('../config/database');
 const notificationsController = require('./notificationsController');
 
-// Tüm görevleri getir (sayfalama ve filtreleme ile)
 const getTasks = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -14,7 +13,6 @@ const getTasks = async (req, res) => {
 
     const userId = req.user?.id || 1;
 
-    // Filtreleme koşulları - hem oluşturan hem de atanan kişinin görevlerini getir
     let whereClause = 'WHERE (t.user_id = ? OR t.assignee_id = ?)';
     let queryParams = [userId, userId];
 
@@ -30,31 +28,26 @@ const getTasks = async (req, res) => {
       queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
     }
 
-    // Durum filtresi
     if (status && status !== 'Hepsi') {
       whereClause += ` AND t.status = ?`;
       queryParams.push(status);
     }
 
-    // Öncelik filtresi
     if (priority) {
       whereClause += ` AND t.priority = ?`;
       queryParams.push(priority);
     }
 
-    // Atanan kişi filtresi
     if (assignee) {
       whereClause += ` AND t.assignee_name LIKE ?`;
       queryParams.push(`%${assignee}%`);
     }
 
-    // Toplam kayıt sayısını al
     const countQuery = `SELECT COUNT(*) as total FROM tasks t ${whereClause}`;
     const [countResult] = await db.execute(countQuery, queryParams);
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
-    // Görevleri getir
     const query = `
       SELECT 
         t.*,
@@ -87,10 +80,8 @@ const getTasks = async (req, res) => {
       LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
     `;
 
-    // userId'yi iki kez ekliyoruz: CASE için ve WHERE koşulu için
     const [tasks] = await db.execute(query, [...queryParams, userId, userId]);
 
-    // Durum sayılarını al - hem oluşturan hem de atanan kişi için
     const statusCountQuery = `
       SELECT 
         status,
@@ -101,7 +92,6 @@ const getTasks = async (req, res) => {
     `;
     const [statusCounts] = await db.execute(statusCountQuery, [userId, userId]);
 
-    // Durum sayılarını formatla
     const formattedStatusCounts = {
       'Hepsi': totalRecords,
       'Beklemede': 0,
@@ -138,7 +128,6 @@ const getTasks = async (req, res) => {
   }
 };
 
-// Görev detayını getir
 const getTask = async (req, res) => {
   try {
     const taskId = parseInt(req.params.id);
@@ -186,7 +175,6 @@ const getTask = async (req, res) => {
   }
 };
 
-// Yeni görev oluştur
 const createTask = async (req, res) => {
   try {
     const {
@@ -207,7 +195,6 @@ const createTask = async (req, res) => {
     const userName = req.user?.name || 'Admin User';
     const userEmail = req.user?.email || 'admin@test.com';
 
-    // Gerekli alanları kontrol et
     if (!title || !assignee_name) {
       return res.status(400).json({
         success: false,
@@ -231,7 +218,6 @@ const createTask = async (req, res) => {
 
     const [result] = await db.execute(query, values);
 
-    // Atanan kişiye bildirim gönder
     if (assignee_id && assignee_id !== userId) {
       try {
         await notificationsController.createNotification(
@@ -248,7 +234,6 @@ const createTask = async (req, res) => {
       }
     }
 
-    // Aktivite kaydet
     const { logActivity } = require('./activitiesController');
     await logActivity(
       userId,
@@ -280,7 +265,6 @@ const createTask = async (req, res) => {
   }
 };
 
-// Görev güncelle
 const updateTask = async (req, res) => {
   try {
     const taskId = parseInt(req.params.id);
@@ -288,7 +272,6 @@ const updateTask = async (req, res) => {
     const userName = req.user?.name || 'Admin User';
     const userEmail = req.user?.email || 'admin@test.com';
 
-    // Mevcut görevi getir - hem oluşturan hem de atanan kişi erişebilir
     const [existingTasks] = await db.execute(
       'SELECT *, CASE WHEN user_id = ? THEN "creator" WHEN assignee_id = ? THEN "assignee" END as user_role FROM tasks WHERE id = ? AND (user_id = ? OR assignee_id = ?)',
       [userId, userId, taskId, userId, userId]
@@ -306,24 +289,20 @@ const updateTask = async (req, res) => {
     const updateFields = [];
     const updateValues = [];
 
-    // Tarihleri MySQL formatına çevir
     const convertDateToMySQLFormat = (dateStr) => {
       if (!dateStr) return null;
       const [day, month, year] = dateStr.split('.');
       return `${year}-${month}-${day}`;
     };
 
-    // Güncellenecek alanları belirle - rol bazında yetki kontrolü
     let allowedFields;
     if (userRole === 'creator') {
-      // Görev oluşturan tüm alanları düzenleyebilir
       allowedFields = [
         'title', 'description', 'assignee_id', 'assignee_name',
         'status', 'priority', 'approval', 'category', 'notes', 
         'completion_percentage'
       ];
     } else if (userRole === 'assignee') {
-      // Atanan kişi sadece belirli alanları düzenleyebilir
       allowedFields = [
         'status', 'completion_percentage', 'notes', 'approval'
       ];
@@ -334,7 +313,6 @@ const updateTask = async (req, res) => {
       });
     }
 
-    // Tarihleri ayrı işle
     if (req.body.start_date) {
       updateFields.push('start_date = ?');
       updateValues.push(convertDateToMySQLFormat(req.body.start_date));
@@ -345,7 +323,6 @@ const updateTask = async (req, res) => {
       updateValues.push(convertDateToMySQLFormat(req.body.end_date));
     }
 
-    // Diğer alanları işle
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
         updateFields.push(`${field} = ?`);
@@ -360,7 +337,6 @@ const updateTask = async (req, res) => {
       });
     }
 
-    // Güncelleme sorgusu
     updateValues.push(taskId, userId, userId);
     const query = `
       UPDATE tasks 
@@ -370,10 +346,7 @@ const updateTask = async (req, res) => {
 
     await db.execute(query, updateValues);
 
-    // Görev güncellendiğinde bildirim gönder
-    // Eğer atanan kişi değiştiyse hem eski hem yeni kişiye bildirim gönder
     if (req.body.assignee_id && req.body.assignee_id !== existingTask.assignee_id) {
-      // Yeni atanan kişiye bildirim
       if (req.body.assignee_id !== userId) {
         try {
           await notificationsController.createNotification(
@@ -390,7 +363,6 @@ const updateTask = async (req, res) => {
         }
       }
       
-      // Eski atanan kişiye bildirim (eğer varsa)
       if (existingTask.assignee_id && existingTask.assignee_id !== userId) {
         try {
           await notificationsController.createNotification(
@@ -407,8 +379,6 @@ const updateTask = async (req, res) => {
         }
       }
     } else {
-      // Görev güncellendi ama atanan kişi değişmedi
-      // Atanan kişi değişiklik yaptıysa görev oluşturanına bildirim gönder
       if (userRole === 'assignee' && existingTask.user_id !== userId) {
         try {
           await notificationsController.createNotification(
@@ -424,7 +394,6 @@ const updateTask = async (req, res) => {
           console.error('Görev oluşturanına bildirim gönderme hatası:', notificationError);
         }
       }
-      // Görev oluşturan değişiklik yaptıysa atanan kişiye bildirim gönder
       else if (userRole === 'creator' && existingTask.assignee_id && existingTask.assignee_id !== userId) {
         try {
           await notificationsController.createNotification(
@@ -442,7 +411,6 @@ const updateTask = async (req, res) => {
       }
     }
 
-    // Aktivite kaydet
     const { logActivity } = require('./activitiesController');
     await logActivity(
       userId,
@@ -473,7 +441,6 @@ const updateTask = async (req, res) => {
   }
 };
 
-// Görev sil
 const deleteTask = async (req, res) => {
   try {
     const taskId = parseInt(req.params.id);
@@ -481,7 +448,6 @@ const deleteTask = async (req, res) => {
     const userName = req.user?.name || 'Admin User';
     const userEmail = req.user?.email || 'admin@test.com';
 
-    // Mevcut görevi getir - sadece görev oluşturan silebilir
     const [existingTasks] = await db.execute(
       'SELECT * FROM tasks WHERE id = ? AND user_id = ?',
       [taskId, userId]
@@ -496,7 +462,6 @@ const deleteTask = async (req, res) => {
 
     const existingTask = existingTasks[0];
 
-    // Atanan kişiye görev silindi bildirimi gönder
     if (existingTask.assignee_id && existingTask.assignee_id !== userId) {
       try {
         await notificationsController.createNotification(
@@ -513,10 +478,8 @@ const deleteTask = async (req, res) => {
       }
     }
 
-    // Görevi sil
     await db.execute('DELETE FROM tasks WHERE id = ? AND user_id = ?', [taskId, userId]);
 
-    // Aktivite kaydet
     const { logActivity } = require('./activitiesController');
     await logActivity(
       userId,
@@ -547,12 +510,10 @@ const deleteTask = async (req, res) => {
   }
 };
 
-// Görev istatistikleri
 const getTaskStats = async (req, res) => {
   try {
     const userId = req.user?.id || 1;
 
-    // Durum bazında istatistikler
     const statusStatsQuery = `
       SELECT 
         status,
@@ -565,7 +526,6 @@ const getTaskStats = async (req, res) => {
 
     const [statusStats] = await db.execute(statusStatsQuery, [userId, userId]);
 
-    // Öncelik bazında istatistikler
     const priorityStatsQuery = `
       SELECT 
         priority,
@@ -584,7 +544,6 @@ const getTaskStats = async (req, res) => {
 
     const [priorityStats] = await db.execute(priorityStatsQuery, [userId]);
 
-    // Kategori bazında istatistikler
     const categoryStatsQuery = `
       SELECT 
         category,
@@ -598,7 +557,6 @@ const getTaskStats = async (req, res) => {
 
     const [categoryStats] = await db.execute(categoryStatsQuery, [userId]);
 
-    // Atanan kişi bazında istatistikler
     const assigneeStatsQuery = `
       SELECT 
         assignee_name,
@@ -634,7 +592,6 @@ const getTaskStats = async (req, res) => {
   }
 };
 
-// Görev onay durumunu güncelle
 const updateTaskApproval = async (req, res) => {
   try {
     const taskId = parseInt(req.params.id);
@@ -643,7 +600,6 @@ const updateTaskApproval = async (req, res) => {
     const userName = req.user?.name || 'Admin User';
     const userEmail = req.user?.email || 'admin@test.com';
 
-    // Geçerli onay durumları
     const validApprovalStatuses = ['ONAYLANDI', 'REDDEDİLDİ', 'ONAY BEKLİYOR'];
     
     if (!validApprovalStatuses.includes(approval)) {
@@ -653,7 +609,6 @@ const updateTaskApproval = async (req, res) => {
       });
     }
 
-    // Mevcut görevi kontrol et
     const [existingTasks] = await db.execute(
       'SELECT * FROM tasks WHERE id = ? AND (user_id = ? OR assignee_id = ?)',
       [taskId, userId, userId]
@@ -668,14 +623,11 @@ const updateTaskApproval = async (req, res) => {
 
     const existingTask = existingTasks[0];
 
-    // Onay durumunu güncelle
     await db.execute(
       'UPDATE tasks SET approval = ? WHERE id = ?',
       [approval, taskId]
     );
 
-    // Onay durumu değişikliği bildirimi gönder
-    // Atanan kişi onay durumunu değiştirdiyse görev oluşturanına bildirim gönder
     if (existingTask.assignee_id === userId && existingTask.user_id !== userId) {
       try {
         let notificationTitle = 'Görev Onay Durumu Değişti';
@@ -694,7 +646,6 @@ const updateTaskApproval = async (req, res) => {
         console.error('Görev oluşturanına onay durumu bildirimi gönderme hatası:', notificationError);
       }
     }
-    // Görev oluşturan onay durumunu değiştirdiyse atanan kişiye bildirim gönder
     else if (existingTask.user_id === userId && existingTask.assignee_id && existingTask.assignee_id !== userId) {
       try {
         let notificationTitle = 'Görev Onay Durumu Değişti';
@@ -714,7 +665,6 @@ const updateTaskApproval = async (req, res) => {
       }
     }
 
-    // Aktivite kaydet
     const { logActivity } = require('./activitiesController');
     await logActivity(
       userId,
@@ -745,7 +695,6 @@ const updateTaskApproval = async (req, res) => {
   }
 };
 
-// Toplu görev silme
 const deleteMultipleTasks = async (req, res) => {
   try {
     const { taskIds } = req.body;
@@ -760,7 +709,6 @@ const deleteMultipleTasks = async (req, res) => {
       });
     }
 
-    // Tüm görevlerin var olup olmadığını ve kullanıcıya ait olup olmadığını kontrol et
     const placeholders = taskIds.map(() => '?').join(',');
     const checkQuery = `SELECT * FROM tasks WHERE id IN (${placeholders}) AND user_id = ?`;
     const [existingTasks] = await db.execute(checkQuery, [...taskIds, userId]);
@@ -772,7 +720,6 @@ const deleteMultipleTasks = async (req, res) => {
       });
     }
 
-    // Atanan kişilere bildirim gönder
     for (const task of existingTasks) {
       if (task.assignee_id && task.assignee_id !== userId) {
         try {
@@ -790,11 +737,9 @@ const deleteMultipleTasks = async (req, res) => {
       }
     }
 
-    // Toplu silme işlemi
     const deleteQuery = `DELETE FROM tasks WHERE id IN (${placeholders}) AND user_id = ?`;
     await db.execute(deleteQuery, [...taskIds, userId]);
 
-    // Her silinen görev için aktivite kaydı
     const { logActivity } = require('./activitiesController');
     for (const task of existingTasks) {
       await logActivity(

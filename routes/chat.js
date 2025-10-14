@@ -13,7 +13,6 @@ const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadPath = path.join(__dirname, '../uploads/chat');
     
-    // Klasör yoksa oluştur
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
     }
@@ -21,7 +20,6 @@ const storage = multer.diskStorage({
     cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
-    // Dosya adını benzersiz yap
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const extension = path.extname(file.originalname);
     const filename = file.fieldname + '-' + uniqueSuffix + extension;
@@ -31,7 +29,6 @@ const storage = multer.diskStorage({
 
 // Dosya filtreleme
 const fileFilter = (req, file, cb) => {
-  // İzin verilen dosya türleri
   const allowedTypes = [
     'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
     'video/mp4', 'video/avi', 'video/mov', 'video/wmv',
@@ -75,7 +72,6 @@ router.get('/rooms/:roomId', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { roomId } = req.params;
 
-    // Kullanıcının bu odaya erişimi var mı kontrol et
     const accessCheck = await db.query(
       'SELECT role FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
       [roomId, userId]
@@ -131,7 +127,6 @@ router.put('/rooms/:roomId', authenticateToken, async (req, res) => {
     const { roomId } = req.params;
     const { name, description, avatarUrl } = req.body;
 
-    // Kullanıcının admin yetkisi var mı kontrol et
     const adminCheck = await db.query(
       'SELECT role FROM chat_participants WHERE room_id = ? AND user_id = ? AND role = "admin" AND left_at IS NULL',
       [roomId, userId]
@@ -188,7 +183,6 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
       });
     }
 
-    // Kullanıcının bu odaya erişimi var mı kontrol et
     const accessCheck = await db.query(
       'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
       [roomId, userId]
@@ -204,7 +198,6 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
     const file = req.file;
     const fileUrl = `/uploads/chat/${file.filename}`;
     
-    // Dosya türüne göre mesaj tipini belirle
     let finalMessageType = messageType;
     if (file.mimetype.startsWith('image/')) {
       finalMessageType = 'image';
@@ -216,14 +209,12 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
       finalMessageType = 'file';
     }
 
-    // Metadata oluştur
     const metadata = {
       originalName: file.originalname,
       mimeType: file.mimetype,
       size: file.size
     };
 
-    // Mesajı veritabanına kaydet
     const result = await db.query(
       `INSERT INTO chat_messages 
        (room_id, sender_id, message_content, message_type, file_url, file_name, file_size, file_mime_type, reply_to_message_id, metadata) 
@@ -231,27 +222,25 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
       [
         roomId, 
         userId, 
-        file.originalname, // Dosya adını mesaj içeriği olarak kullan
+        file.originalname, 
         finalMessageType, 
         fileUrl, 
         file.originalname, 
         file.size, 
         file.mimetype, 
-        replyToMessageId || null, // undefined ise null yap
+        replyToMessageId || null, 
         JSON.stringify(metadata)
       ]
     );
 
     const messageId = result.insertId;
 
-    // Oda katılımcılarını getir (gönderen hariç)
     const participants = await db.query(
       `SELECT user_id FROM chat_participants 
        WHERE room_id = ? AND user_id != ? AND left_at IS NULL`,
       [roomId, userId]
     );
 
-    // Her katılımcı için mesaj durumu oluştur
     for (const participant of participants) {
       await db.query(
         'INSERT INTO message_read_status (message_id, user_id, status) VALUES (?, ?, ?)',
@@ -259,7 +248,6 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
       );
     }
 
-    // Gönderilen mesajı detaylarıyla birlikte getir
     const messageQuery = `
       SELECT 
         cm.*,
@@ -272,13 +260,11 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
 
     const [newMessage] = await db.query(messageQuery, [messageId]);
 
-    // Socket ile real-time mesaj gönder
     const io = getIO();
     console.log('Dosya upload Socket emit başlıyor. Katılımcılar:', participants);
     console.log('Gönderen userId:', userId);
     console.log('Gönderilecek dosya mesajı:', newMessage);
     
-    // Frontend'in beklediği formatta mesaj objesi oluştur
     const messageForSocket = {
       id: newMessage.id,
       room_id: parseInt(roomId),
@@ -304,17 +290,14 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
       })()
     };
 
-    // Oda katılımcılarına mesajı gönder
     for (const participant of participants) {
       console.log(`Socket emit: user-${participant.user_id} için new-message gönderiliyor (dosya)`);
       io.to(`user-${participant.user_id}`).emit('new-message', messageForSocket);
     }
     
-    // Gönderene de mesajı gönder (diğer cihazları için)
     console.log(`Socket emit: user-${userId} için new-message gönderiliyor (dosya)`);
     io.to(`user-${userId}`).emit('new-message', messageForSocket);
 
-    // Chat listesi güncellemesi için event gönder (okunmamış mesaj sayıları için)
     for (const participant of participants) {
       io.to(`user-${participant.user_id}`).emit('chat-list-update', { 
         type: 'new_message', 
@@ -334,7 +317,6 @@ router.post('/rooms/:roomId/messages/file', authenticateToken, upload.single('fi
   } catch (error) {
     console.error('Dosya gönderirken hata:', error);
     
-    // Hata durumunda dosyayı sil
     if (req.file) {
       const filePath = path.join(__dirname, '../uploads/chat', req.file.filename);
       if (fs.existsSync(filePath)) {
@@ -373,7 +355,6 @@ router.post('/messages/:messageId/reaction', authenticateToken, async (req, res)
       });
     }
 
-    // Mesajın var olduğunu ve kullanıcının erişimi olduğunu kontrol et
     const messageCheck = await db.query(`
       SELECT cm.id 
       FROM chat_messages cm
@@ -388,14 +369,12 @@ router.post('/messages/:messageId/reaction', authenticateToken, async (req, res)
       });
     }
 
-    // Mevcut reaksiyonu kontrol et
     const existingReaction = await db.query(
       'SELECT id FROM message_reactions WHERE message_id = ? AND user_id = ? AND reaction = ?',
       [messageId, userId, reaction]
     );
 
     if (existingReaction.length > 0) {
-      // Reaksiyonu kaldır
       await db.query(
         'DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND reaction = ?',
         [messageId, userId, reaction]
@@ -407,7 +386,6 @@ router.post('/messages/:messageId/reaction', authenticateToken, async (req, res)
         action: 'removed'
       });
     } else {
-      // Reaksiyonu ekle
       await db.query(
         'INSERT INTO message_reactions (message_id, user_id, reaction) VALUES (?, ?, ?)',
         [messageId, userId, reaction]
@@ -493,7 +471,6 @@ router.post('/rooms/:roomId/participants', authenticateToken, async (req, res) =
       });
     }
 
-    // Kullanıcının admin yetkisi var mı kontrol et
     const adminCheck = await db.query(
       'SELECT role FROM chat_participants WHERE room_id = ? AND user_id = ? AND role = "admin" AND left_at IS NULL',
       [roomId, userId]
@@ -506,7 +483,6 @@ router.post('/rooms/:roomId/participants', authenticateToken, async (req, res) =
       });
     }
 
-    // Grup chat mi kontrol et
     const roomCheck = await db.query(
       'SELECT type FROM chat_rooms WHERE id = ? AND type = "group"',
       [roomId]
@@ -522,7 +498,6 @@ router.post('/rooms/:roomId/participants', authenticateToken, async (req, res) =
     const addedUsers = [];
     
     for (const newUserId of userIds) {
-      // Kullanıcı zaten katılımcı mı kontrol et
       const existingParticipant = await db.query(
         'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
         [roomId, newUserId]
@@ -559,7 +534,6 @@ router.delete('/rooms/:roomId/participants/:participantId', authenticateToken, a
     const userId = req.user.id;
     const { roomId, participantId } = req.params;
 
-    // Kullanıcının admin yetkisi var mı veya kendini mi çıkarıyor kontrol et
     const adminCheck = await db.query(
       'SELECT role FROM chat_participants WHERE room_id = ? AND user_id = ? AND role = "admin" AND left_at IS NULL',
       [roomId, userId]
@@ -574,7 +548,6 @@ router.delete('/rooms/:roomId/participants/:participantId', authenticateToken, a
       });
     }
 
-    // Katılımcıyı çıkar (soft delete)
     await db.query(
       'UPDATE chat_participants SET left_at = NOW() WHERE room_id = ? AND user_id = ?',
       [roomId, participantId]
@@ -609,7 +582,6 @@ router.put('/rooms/:roomId/participants/:participantId/role', authenticateToken,
       });
     }
 
-    // Kullanıcının admin yetkisi var mı kontrol et
     const adminCheck = await db.query(
       'SELECT role FROM chat_participants WHERE room_id = ? AND user_id = ? AND role = "admin" AND left_at IS NULL',
       [roomId, userId]
@@ -654,7 +626,6 @@ router.get('/rooms/:roomId/search', authenticateToken, async (req, res) => {
     const { query, messageType, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
-    // Kullanıcının bu odaya erişimi var mı kontrol et
     const accessCheck = await db.query(
       'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
       [roomId, userId]
@@ -730,7 +701,6 @@ router.get('/users/search', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { query = '', limit = 10 } = req.query;
 
-    // Boş query için tüm kullanıcıları döndür
     let searchQuery, queryParams;
     
     if (!query || query.trim().length === 0) {
@@ -788,7 +758,6 @@ router.put('/rooms/:roomId/pin', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { is_pinned } = req.body;
 
-    // Kullanıcının bu chat'e katılımcı olup olmadığını kontrol et
     const participantCheck = await db.query(
       'SELECT id FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL',
       [roomId, userId]
@@ -801,7 +770,6 @@ router.put('/rooms/:roomId/pin', authenticateToken, async (req, res) => {
       });
     }
 
-    // Chat sabitleme durumunu güncelle
     await db.query(
       'UPDATE chat_participants SET is_pinned = ?, updated_at = NOW() WHERE room_id = ? AND user_id = ?',
       [is_pinned ? 1 : 0, roomId, userId]
@@ -832,7 +800,6 @@ router.delete('/rooms/:roomId/messages', authenticateToken, async (req, res) => 
     const { roomId } = req.params;
     const userId = req.user.id;
 
-    // Kullanıcının bu chat'e erişimi var mı kontrol et
     const [participantRows] = await db.query(
       'SELECT * FROM chat_participants WHERE room_id = ? AND user_id = ? AND left_at IS NULL AND (deleted_at IS NULL OR reopened_at IS NOT NULL)',
       [roomId, userId]
@@ -845,7 +812,6 @@ router.delete('/rooms/:roomId/messages', authenticateToken, async (req, res) => 
       });
     }
 
-    // Chat'i sadece bu kullanıcı için sil (soft delete)
     await db.query(
       'UPDATE chat_participants SET deleted_at = NOW(), updated_at = NOW() WHERE room_id = ? AND user_id = ?',
       [roomId, userId]

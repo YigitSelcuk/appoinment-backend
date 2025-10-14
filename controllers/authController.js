@@ -2,10 +2,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { tokenBlacklist } = require('../middleware/security');
 
-// Merkezi veritabanı bağlantısı
 const db = require('../config/database');
 
-// Kullanıcı girişi
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -17,11 +15,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Rate limiting kontrolü (IP bazlı)
     const clientIP = req.ip || req.connection.remoteAddress;
     const rateLimitKey = `login_attempts_${clientIP}`;
     
-    // Kullanıcıyı veritabanından bul
     const query = 'SELECT * FROM users WHERE email = ?';
     const users = await db.query(query, [email]);
 
@@ -34,7 +30,6 @@ exports.login = async (req, res) => {
 
     const user = users[0];
 
-    // Şifreyi kontrol et
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -43,11 +38,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Kullanıcıyı online yap
     const updateOnlineQuery = 'UPDATE users SET is_online = TRUE, last_seen = CURRENT_TIMESTAMP WHERE id = ?';
     await db.query(updateOnlineQuery, [user.id]);
 
-    // permissions alanını parse et
     const userPermissions = user.permissions ? (() => {
       try { 
         return typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; 
@@ -56,7 +49,6 @@ exports.login = async (req, res) => {
       }
     })() : null;
 
-    // Access Token (orta süreli - 3 saat)
     const accessToken = jwt.sign(
       {
         id: user.id,
@@ -71,7 +63,6 @@ exports.login = async (req, res) => {
       { expiresIn: '3h' }
     );
 
-    // Refresh Token (uzun süreli - 7 gün)
     const refreshToken = jwt.sign(
       {
         id: user.id,
@@ -82,7 +73,6 @@ exports.login = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Refresh token'ı HttpOnly cookie olarak ayarla (cross-site için SameSite=None)
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production' ? true : false,
@@ -91,11 +81,9 @@ exports.login = async (req, res) => {
       path: '/'
     });
 
-    // Şifreyi response'dan çıkar
     const { password: _, ...userWithoutPassword } = user;
     userWithoutPassword.is_online = true;
 
-    // Sadece gerekli kullanıcı bilgilerini gönder (hassas bilgileri çıkar)
     const safeUserData = {
       id: userWithoutPassword.id,
       name: userWithoutPassword.name,
@@ -109,7 +97,7 @@ exports.login = async (req, res) => {
     res.json({
       success: true,
       message: 'Giriş başarılı',
-      accessToken, // Sadece access token frontend'e gönderilir
+      accessToken, 
       user: safeUserData
     });
 
@@ -122,7 +110,6 @@ exports.login = async (req, res) => {
   }
 };
 
-// Kullanıcı kaydı
 exports.register = async (req, res) => {
   try {
     const { name, email, password, role = 'user', permissions = null } = req.body;
@@ -135,7 +122,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Email zaten kayıtlı mı kontrol et
     const checkQuery = 'SELECT id FROM users WHERE email = ?';
     const existingUsers = await db.query(checkQuery, [email]);
 
@@ -146,21 +132,17 @@ exports.register = async (req, res) => {
         });
       }
 
-    // Şifreyi hash'le
       const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Kullanıcıyı kaydet
     const insertQuery = `
       INSERT INTO users (name, email, password, role, permissions, is_online, created_at)
       VALUES (?, ?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP)
     `;
     const result = await db.query(insertQuery, [name, email, hashedPassword, roleNormalized, permissions ? JSON.stringify(permissions) : null]);
 
-    // Yeni kullanıcı bilgilerini al
     const newUserRows = await db.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
     const userData = newUserRows[0];
 
-    // JWT token oluştur
     const token = jwt.sign(
       { 
         id: result.insertId, 
@@ -196,10 +178,8 @@ exports.register = async (req, res) => {
   }
 };
 
-// Token yenileme
 exports.refreshToken = async (req, res) => {
   try {
-    // Birden fazla kaynaktan refresh token'ı dene: Cookie -> Authorization header -> Body
     let refreshToken = null;
 
     if (req.cookies && req.cookies.refreshToken) {
@@ -224,7 +204,6 @@ exports.refreshToken = async (req, res) => {
       });
     }
 
-    // Refresh token'ı doğrula
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
     
     if (decoded.type !== 'refresh') {
@@ -234,7 +213,6 @@ exports.refreshToken = async (req, res) => {
       });
     }
 
-    // Kullanıcıyı veritabanından al
     const query = 'SELECT * FROM users WHERE id = ? AND email = ?';
     const users = await db.query(query, [decoded.id, decoded.email]);
 
@@ -247,7 +225,6 @@ exports.refreshToken = async (req, res) => {
 
     const user = users[0];
 
-    // permissions alanını parse et
     const userPermissions = user.permissions ? (() => {
       try { 
         return typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; 
@@ -256,7 +233,6 @@ exports.refreshToken = async (req, res) => {
       }
     })() : null;
 
-    // Yeni access token oluştur
     const newAccessToken = jwt.sign(
       {
         id: user.id,
@@ -285,12 +261,10 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
-// Kullanıcı çıkışı
 exports.logout = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Access token'ı blacklist'e ekle
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     
@@ -298,11 +272,9 @@ exports.logout = async (req, res) => {
       tokenBlacklist.add(token);
     }
 
-    // Kullanıcıyı offline yap
     const updateQuery = 'UPDATE users SET is_online = FALSE, last_seen = CURRENT_TIMESTAMP WHERE id = ?';
     await db.query(updateQuery, [userId]);
 
-    // Refresh token cookie'sini temizle
     res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -324,10 +296,8 @@ exports.logout = async (req, res) => {
   }
 };
 
-// Token doğrulama
 exports.verify = async (req, res) => {
   try {
-    // Token middleware tarafından doğrulanmış, user bilgisi req.user'da
     res.json({
       success: true,
       message: 'Token geçerli',

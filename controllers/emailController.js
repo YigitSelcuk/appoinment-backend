@@ -1,7 +1,6 @@
 const emailService = require('../services/emailService');
 const db = require('../config/database');
 
-// E-posta konfigürasyonu test endpoint'i
 exports.getEmailConfig = async (req, res) => {
     try {
         const testResult = await emailService.testConnection();
@@ -20,7 +19,6 @@ exports.getEmailConfig = async (req, res) => {
     }
 };
 
-// Tek e-posta gönder
 exports.sendEmail = async (req, res) => {
     try {
         const { to, subject, htmlContent, textContent } = req.body;
@@ -34,7 +32,6 @@ exports.sendEmail = async (req, res) => {
 
         const result = await emailService.sendEmail(to, subject, htmlContent, textContent);
         
-        // E-posta gönderim kaydını veritabanına kaydet
         await db.execute(
             'INSERT INTO email_logs (user_id, recipient, subject, status, sent_at) VALUES (?, ?, ?, ?, NOW())',
             [req.user.id, to, subject, 'sent']
@@ -48,7 +45,6 @@ exports.sendEmail = async (req, res) => {
     } catch (error) {
         console.error('E-posta gönderme hatası:', error);
         
-        // Hata kaydını veritabanına kaydet
         try {
             await db.execute(
                 'INSERT INTO email_logs (user_id, recipient, subject, status, error_message, sent_at) VALUES (?, ?, ?, ?, ?, NOW())',
@@ -66,7 +62,6 @@ exports.sendEmail = async (req, res) => {
     }
 };
 
-// Randevu bildirimi e-postası gönder
 exports.sendAppointmentNotification = async (req, res) => {
     try {
         const { appointmentData, recipientEmail, notificationType } = req.body;
@@ -84,7 +79,6 @@ exports.sendAppointmentNotification = async (req, res) => {
             notificationType || 'created'
         );
         
-        // E-posta gönderim kaydını veritabanına kaydet
         await db.execute(
             'INSERT INTO email_logs (user_id, recipient, subject, email_type, appointment_id, status, sent_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
             [
@@ -105,7 +99,6 @@ exports.sendAppointmentNotification = async (req, res) => {
     } catch (error) {
         console.error('Randevu bildirimi e-postası gönderme hatası:', error);
         
-        // Hata kaydını veritabanına kaydet
         try {
             await db.execute(
                 'INSERT INTO email_logs (user_id, recipient, subject, email_type, appointment_id, status, error_message, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
@@ -131,7 +124,6 @@ exports.sendAppointmentNotification = async (req, res) => {
     }
 };
 
-// E-posta geçmişini getir
 exports.getEmailHistory = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -188,7 +180,6 @@ exports.getEmailHistory = async (req, res) => {
     }
 };
 
-// E-posta istatistikleri
 exports.getEmailStats = async (req, res) => {
     try {
         const userId = req.user.id;
