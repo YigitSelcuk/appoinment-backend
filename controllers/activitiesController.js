@@ -43,7 +43,7 @@ const getActivities = async (req, res) => {
     const query = `
       SELECT 
         a.*,
-        DATE_FORMAT(CONVERT_TZ(a.created_at, @@session.time_zone, '+03:00'), '%d.%m.%Y %H:%i:%s') as created_at_display
+        DATE_FORMAT(a.created_at, '%d.%m.%Y %H:%i:%s') as created_at_display
       FROM activities a
       ${whereClause}
       ORDER BY a.created_at DESC
@@ -259,8 +259,7 @@ const checkTimezone = async (req, res) => {
         @@global.time_zone as global_timezone,
         @@session.time_zone as session_timezone,
         NOW() as server_time,
-        UTC_TIMESTAMP() as utc_time,
-        CONVERT_TZ(NOW(), @@session.time_zone, '+03:00') as turkey_time
+        UTC_TIMESTAMP() as utc_time
     `);
 
     res.json({

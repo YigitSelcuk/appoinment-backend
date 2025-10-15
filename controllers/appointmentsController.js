@@ -583,7 +583,7 @@ const createAppointment = async (req, res) => {
         });
         
         if (reminderTime <= currentTime) {
-          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
+          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTime.toLocaleString()}, Hatırlatma zamanı: ${reminderTime.toLocaleString()}`);
         } else {
           const [reminderResult] = await db.execute(
             `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 
@@ -1185,7 +1185,7 @@ const updateAppointment = async (req, res) => {
           );
           console.log(`✅ Hatırlatıcı güncellendi: ${reminder_datetime}`);
         } else {
-          console.log(`⚠️ Geçmiş tarihli hatırlatıcı eklenmedi. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderDate.toLocaleString('tr-TR')}`);
+          console.log(`⚠️ Geçmiş tarihli hatırlatıcı eklenmedi. Şu anki zaman: ${currentTime.toLocaleString()}, Hatırlatma zamanı: ${reminderDate.toLocaleString()}`);
         }
       } catch (reminderError) {
         console.error('Hatırlatıcı güncelleme hatası:', reminderError);
@@ -1273,7 +1273,7 @@ const updateAppointment = async (req, res) => {
         });
         
         if (reminderTime <= currentTime) {
-          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
+          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTime.toLocaleString()}, Hatırlatma zamanı: ${reminderTime.toLocaleString()}`);
         } else {
           const [reminderResult] = await db.execute(
             `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 

@@ -55,7 +55,7 @@ class ReminderService {
       
       console.log(`📅 Randevu tarihi: ${dateStr}`);
       console.log(`🕐 Randevu saati: ${timeStr}`);
-      console.log(`📅 Birleştirilmiş: ${appointmentDateTime.toLocaleString('tr-TR')}`);
+      console.log(`📅 Birleştirilmiş: ${appointmentDateTime.toLocaleString()}`);
       
       const reminderTime = this.calculateReminderTime(appointmentDateTime, reminderValue, reminderUnit);
       
@@ -66,13 +66,13 @@ class ReminderService {
         String(reminderTime.getMinutes()).padStart(2, '0') + ':' + 
         String(reminderTime.getSeconds()).padStart(2, '0');
       
-      console.log(`⏰ Randevu zamanı: ${appointmentDateTime.toLocaleString('tr-TR')}`);
-      console.log(`⏰ Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
+      console.log(`⏰ Randevu zamanı: ${appointmentDateTime.toLocaleString()}`);
+      console.log(`⏰ Hatırlatma zamanı: ${reminderTime.toLocaleString()}`);
       console.log(`⏰ Hatırlatma zamanı (DB string): ${reminderTimeForDB}`);
       
       const currentTime = new Date();
       if (reminderTime <= currentTime) {
-        console.log(`⚠️ Hatırlatma zamanı geçmiş, kaydetmiyorum. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
+        console.log(`⚠️ Hatırlatma zamanı geçmiş, kaydetmiyorum. Şu anki zaman: ${currentTime.toLocaleString()}, Hatırlatma zamanı: ${reminderTime.toLocaleString()}`);
         return { success: false, message: 'Hatırlatma zamanı geçmiş bir zamana denk geliyor. Lütfen daha uzak bir hatırlatma süresi seçin.' };
       }
 
@@ -117,7 +117,7 @@ class ReminderService {
   async checkAndSendReminders() {
     try {
       const now = new Date();
-      console.log(`🔍 Hatırlatma kontrolü: ${now.toLocaleString('tr-TR')}`);
+      console.log(`🔍 Hatırlatma kontrolü: ${now.toLocaleString()}`);
       
       const nowForDB = now.getFullYear() + '-' + 
         String(now.getMonth() + 1).padStart(2, '0') + '-' + 
@@ -126,7 +126,7 @@ class ReminderService {
         String(now.getMinutes()).padStart(2, '0') + ':' + 
         String(now.getSeconds()).padStart(2, '0');
       
-      console.log(`🕐 Şu anki zaman: ${now.toLocaleString('tr-TR')}`);
+      console.log(`🕐 Şu anki zaman: ${now.toLocaleString()}`);
       console.log(`🕐 DB karşılaştırma zamanı: ${nowForDB}`);
       
       const [reminders] = await db.execute(
