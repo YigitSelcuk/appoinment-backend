@@ -112,8 +112,7 @@ const getActivities = async (req, res) => {
 const logActivity = async (userId, userName, userEmail, actionType, tableName, recordId, description, oldValues = null, newValues = null, ipAddress = null, userAgent = null) => {
   try {
     const now = new Date();
-    const turkeyTime = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Istanbul"}));
-    const formattedDate = turkeyTime.toISOString().slice(0, 19).replace('T', ' ');
+    const formattedDate = now.toISOString().slice(0, 19).replace('T', ' ');
 
     const query = `
       INSERT INTO activities (

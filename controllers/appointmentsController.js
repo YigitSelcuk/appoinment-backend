@@ -569,25 +569,21 @@ const createAppointment = async (req, res) => {
           appointmentTime: startTime
         });
         
-        const reminderDateTimeWithTimezone = new Date(new Date(reminderDateTime).getTime() + (3 * 60 * 60 * 1000));
-        const reminderTimeForDB = reminderDateTimeWithTimezone.toISOString().slice(0, 19).replace('T', ' ');
+        const reminderTime = new Date(reminderDateTime);
+        const reminderTimeForDB = reminderTime.toISOString().slice(0, 19).replace('T', ' ');
         
-        console.log('⏰ Orijinal reminderDateTime:', reminderDateTime);
-        console.log('⏰ +3 saat eklenmiş:', reminderDateTimeWithTimezone.toISOString());
+        console.log('⏰ Hatırlatma zamanı:', reminderDateTime);
         console.log('⏰ DB formatı:', reminderTimeForDB);
         
-        const currentTimeUTC = new Date();
-        const reminderTimeUTC = new Date(reminderDateTime);
+        const currentTime = new Date();
         
         console.log('⏰ Geçmiş zaman kontrolü:', {
-          currentTimeUTC: currentTimeUTC.toISOString(),
-          reminderTimeUTC: reminderTimeUTC.toISOString(),
-          currentTimeTR: currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
-          reminderTimeTR: reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+          currentTime: currentTime.toISOString(),
+          reminderTime: reminderTime.toISOString()
         });
         
-        if (reminderTimeUTC <= currentTimeUTC) {
-          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}, Hatırlatma zamanı: ${reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`);
+        if (reminderTime <= currentTime) {
+          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
         } else {
           const [reminderResult] = await db.execute(
             `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 
@@ -1263,25 +1259,21 @@ const updateAppointment = async (req, res) => {
           [appointmentId]
         );
         
-        const reminderDateTimeWithTimezone = new Date(new Date(reminderDateTime).getTime() + (3 * 60 * 60 * 1000));
-        const reminderTimeForDB = reminderDateTimeWithTimezone.toISOString().slice(0, 19).replace('T', ' ');
+        const reminderTime = new Date(reminderDateTime);
+        const reminderTimeForDB = reminderTime.toISOString().slice(0, 19).replace('T', ' ');
         
-        console.log('⏰ Orijinal reminderDateTime:', reminderDateTime);
-        console.log('⏰ +3 saat eklenmiş:', reminderDateTimeWithTimezone.toISOString());
+        console.log('⏰ Hatırlatma zamanı:', reminderDateTime);
         console.log('⏰ DB formatı:', reminderTimeForDB);
         
-        const currentTimeUTC = new Date();
-        const reminderTimeUTC = new Date(reminderDateTime);
+        const currentTime = new Date();
         
         console.log('⏰ Geçmiş zaman kontrolü:', {
-          currentTimeUTC: currentTimeUTC.toISOString(),
-          reminderTimeUTC: reminderTimeUTC.toISOString(),
-          currentTimeTR: currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }),
-          reminderTimeTR: reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+          currentTime: currentTime.toISOString(),
+          reminderTime: reminderTime.toISOString()
         });
         
-        if (reminderTimeUTC <= currentTimeUTC) {
-          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}, Hatırlatma zamanı: ${reminderTimeUTC.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`);
+        if (reminderTime <= currentTime) {
+          console.log(`⚠️ Hatırlatma zamanı geçmişte, zamanlanmadı. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
         } else {
           const [reminderResult] = await db.execute(
             `INSERT INTO appointment_reminders (appointment_id, reminder_time, status, created_at, updated_at) 

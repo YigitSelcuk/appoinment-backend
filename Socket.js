@@ -726,9 +726,8 @@ class SocketManager {
 
    async setUserOnlineStatus(userId, isOnline) {
      try {
-       // Türkiye saatini kullan (UTC+3)
-       const turkeyTime = new Date(new Date().getTime() + (3 * 60 * 60 * 1000));
-       const formattedTime = turkeyTime.toISOString().slice(0, 19).replace('T', ' ');
+       const currentTime = new Date();
+       const formattedTime = currentTime.toISOString().slice(0, 19).replace('T', ' ');
        
        await db.execute(
          'UPDATE users SET is_online = ?, last_seen = ? WHERE id = ?',

@@ -17,7 +17,6 @@ const dbConfig = {
   connectionLimit: process.env.NODE_ENV === 'production' ? 20 : 10,
   queueLimit: 0,
   multipleStatements: false,
-  timezone: '+03:00', 
   acquireTimeout: 60000,
   timeout: 60000,
   reconnect: true
@@ -58,8 +57,7 @@ const pool = mysql.createPool({
   multipleStatements: false,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  timezone: '+03:00' 
+  queueLimit: 0
 });
 
 const promisePool = mysql2Promise.createPool({
