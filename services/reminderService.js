@@ -59,24 +59,20 @@ class ReminderService {
       
       const reminderTime = this.calculateReminderTime(appointmentDateTime, reminderValue, reminderUnit);
       
-      // Türkiye saati için +3 saat ekle
-      const reminderTimeWithTimezone = new Date(reminderTime.getTime() + (3 * 60 * 60 * 1000));
-      
-      const reminderTimeForDB = reminderTimeWithTimezone.getFullYear() + '-' + 
-        String(reminderTimeWithTimezone.getMonth() + 1).padStart(2, '0') + '-' + 
-        String(reminderTimeWithTimezone.getDate()).padStart(2, '0') + ' ' + 
-        String(reminderTimeWithTimezone.getHours()).padStart(2, '0') + ':' + 
-        String(reminderTimeWithTimezone.getMinutes()).padStart(2, '0') + ':' + 
-        String(reminderTimeWithTimezone.getSeconds()).padStart(2, '0');
+      const reminderTimeForDB = reminderTime.getFullYear() + '-' + 
+        String(reminderTime.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(reminderTime.getDate()).padStart(2, '0') + ' ' + 
+        String(reminderTime.getHours()).padStart(2, '0') + ':' + 
+        String(reminderTime.getMinutes()).padStart(2, '0') + ':' + 
+        String(reminderTime.getSeconds()).padStart(2, '0');
       
       console.log(`⏰ Randevu zamanı: ${appointmentDateTime.toLocaleString('tr-TR')}`);
-      console.log(`⏰ Hatırlatma zamanı (orijinal): ${reminderTime.toLocaleString('tr-TR')}`);
-      console.log(`⏰ Hatırlatma zamanı (+3 saat): ${reminderTimeWithTimezone.toLocaleString('tr-TR')}`);
+      console.log(`⏰ Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
       console.log(`⏰ Hatırlatma zamanı (DB string): ${reminderTimeForDB}`);
       
       const currentTime = new Date();
-      if (reminderTimeWithTimezone <= currentTime) {
-        console.log(`⚠️ Hatırlatma zamanı geçmiş, kaydetmiyorum. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTimeWithTimezone.toLocaleString('tr-TR')}`);
+      if (reminderTime <= currentTime) {
+        console.log(`⚠️ Hatırlatma zamanı geçmiş, kaydetmiyorum. Şu anki zaman: ${currentTime.toLocaleString('tr-TR')}, Hatırlatma zamanı: ${reminderTime.toLocaleString('tr-TR')}`);
         return { success: false, message: 'Hatırlatma zamanı geçmiş bir zamana denk geliyor. Lütfen daha uzak bir hatırlatma süresi seçin.' };
       }
 
@@ -123,15 +119,14 @@ class ReminderService {
       const now = new Date();
       console.log(`🔍 Hatırlatma kontrolü: ${now.toLocaleString('tr-TR')}`);
       
-      const nowWithTimezone = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-      const nowForDB = nowWithTimezone.getFullYear() + '-' + 
-        String(nowWithTimezone.getMonth() + 1).padStart(2, '0') + '-' + 
-        String(nowWithTimezone.getDate()).padStart(2, '0') + ' ' + 
-        String(nowWithTimezone.getHours()).padStart(2, '0') + ':' + 
-        String(nowWithTimezone.getMinutes()).padStart(2, '0') + ':' + 
-        String(nowWithTimezone.getSeconds()).padStart(2, '0');
+      const nowForDB = now.getFullYear() + '-' + 
+        String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(now.getDate()).padStart(2, '0') + ' ' + 
+        String(now.getHours()).padStart(2, '0') + ':' + 
+        String(now.getMinutes()).padStart(2, '0') + ':' + 
+        String(now.getSeconds()).padStart(2, '0');
       
-      console.log(`🕐 Şu anki zaman (UTC+3): ${nowWithTimezone.toLocaleString('tr-TR')}`);
+      console.log(`🕐 Şu anki zaman: ${now.toLocaleString('tr-TR')}`);
       console.log(`🕐 DB karşılaştırma zamanı: ${nowForDB}`);
       
       const [reminders] = await db.execute(
