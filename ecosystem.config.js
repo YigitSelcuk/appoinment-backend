@@ -3,15 +3,17 @@ module.exports = {
     {
       name: 'appointment-backend',
       script: './server.js',
-      instances: 'max', // CPU çekirdek sayısı kadar instance
-      exec_mode: 'cluster',
+      instances: '1', // CPU çekirdek sayısı kadar instance
+      exec_mode: 'fork',
       env: {
         NODE_ENV: 'development',
-        PORT: 5000
+        PORT: 5000,
+        TZ: 'Europe/Istanbul'
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 5000
+        PORT: 5000,
+        TZ: 'Europe/Istanbul'
       },
       // Monitoring ve logging
       log_file: './logs/combined.log',
