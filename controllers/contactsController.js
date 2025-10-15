@@ -228,6 +228,88 @@ const updateContact = async (req, res) => {
   }
 };
 
+const updateContactAvatar = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.userId;
+    const contactId = req.params.id;
+    const { removeAvatar } = req.body;
+    
+    // Kişinin varlığını kontrol et
+    const [existingContact] = await promisePool.execute(
+      'SELECT id, avatar FROM contacts WHERE id = ?',
+      [contactId]
+    );
+    
+    if (existingContact.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Kişi bulunamadı'
+      });
+    }
+    
+    let avatarPath = null;
+    
+    // Avatar silme işlemi
+    if (removeAvatar === 'true') {
+      // Eski avatar dosyasını sil
+      if (existingContact[0].avatar) {
+        const fs = require('fs');
+        const path = require('path');
+        const oldAvatarPath = existingContact[0].avatar.replace(process.env.BACKEND_URL || 'http://localhost:5000', '');
+        const fullPath = path.join(__dirname, '..', oldAvatarPath);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+      avatarPath = null;
+    } 
+    // Yeni avatar yükleme işlemi
+    else if (req.file) {
+      // Eski avatar dosyasını sil
+      if (existingContact[0].avatar) {
+        const fs = require('fs');
+        const path = require('path');
+        const oldAvatarPath = existingContact[0].avatar.replace(process.env.BACKEND_URL || 'http://localhost:5000', '');
+        const fullPath = path.join(__dirname, '..', oldAvatarPath);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      }
+      avatarPath = `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/avatars/${req.file.filename}`;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Avatar dosyası veya silme talebi gereklidir'
+      });
+    }
+    
+    // Veritabanını güncelle
+    await promisePool.execute(
+      'UPDATE contacts SET avatar = ? WHERE id = ?',
+      [avatarPath, contactId]
+    );
+    
+    // Güncellenmiş kişiyi getir
+    const [updatedContact] = await promisePool.execute(
+      'SELECT * FROM contacts WHERE id = ?',
+      [contactId]
+    );
+    
+    res.json({
+      success: true,
+      message: removeAvatar === 'true' ? 'Avatar başarıyla silindi' : 'Avatar başarıyla güncellendi',
+      data: updatedContact[0]
+    });
+    
+  } catch (error) {
+    console.error('Avatar güncellenirken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Avatar güncellenirken hata oluştu'
+    });
+  }
+};
+
 const deleteContact = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
@@ -895,6 +977,7 @@ module.exports = {
   getContact,
   createContact,
   updateContact,
+  updateContactAvatar,
   deleteContact,
   deleteMultipleContacts,
   getCategories,

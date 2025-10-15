@@ -7,6 +7,7 @@ const {
   getContact,
   createContact,
   updateContact,
+  updateContactAvatar,
   deleteContact,
   deleteMultipleContacts,
   getCategories,
@@ -40,6 +41,7 @@ router.post('/send-bulk-sms', sendBulkSMSByCategories);
 router.get('/', getContacts);
 router.get('/:id', getContact);
 router.post('/', upload.single('avatar'), createContact); // Resim yükleme desteği
+router.put('/:id/avatar', upload.single('avatar'), updateContactAvatar); // Avatar güncelleme
 router.put('/:id', updateContact);
 router.delete('/bulk', deleteMultipleContacts); // Toplu silme - spesifik route önce gelmelidir
 router.delete('/:id', deleteContact);
