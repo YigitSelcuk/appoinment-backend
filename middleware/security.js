@@ -12,7 +12,7 @@ const loginLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, x
+  skipSuccessfulRequests: true,
 });
 
 const apiLimiter = rateLimit({
