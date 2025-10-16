@@ -47,7 +47,7 @@ class SocketManager {
     const userId = socket.userId;
     const userInfo = socket.userInfo;
 
-    console.log(`Kullanıcı bağlandı: ${userInfo.name} (${userId})`);
+    console.log(`🔗 Kullanıcı bağlandı: ${userInfo.name} (${userId})`);
 
     // Kullanıcıyı online olarak işaretle
     const updatedUser = await this.setUserOnlineStatus(userId, true);
@@ -62,15 +62,26 @@ class SocketManager {
     roomIds.forEach((roomId) => {
       if (roomId) {
         socket.join(roomId);
-        console.log(`Odaya katıldı: ${roomId}`);
+        console.log(`📍 Odaya katıldı: ${roomId}`);
       }
     });
 
     // Kullanıcı özel odasına da katıl
     socket.join(`user-${userId}`);
-    console.log(`Kullanıcı kişisel odaya katıldı: user-${userId}`);
+    console.log(`👤 Kullanıcı kişisel odaya katıldı: user-${userId}`);
 
-    // Bağlı kullanıcıları güncelle
+    // Bağlı kullanıcıları güncelle - mevcut bağlantıyı kontrol et
+    const existingConnection = this.connectedUsers.get(userId);
+    if (existingConnection) {
+      console.log(`🔄 ${userId} için mevcut bağlantı güncelleniyor`);
+      // Eski socket'i kapat
+      const oldSocket = this.io.sockets.sockets.get(existingConnection.socketId);
+      if (oldSocket) {
+        oldSocket.disconnect(true);
+      }
+    }
+
+    // Yeni bağlantı bilgilerini kaydet
     this.connectedUsers.set(userId, {
       socketId: socket.id,
       userInfo: userInfo,
@@ -671,37 +682,51 @@ class SocketManager {
    }
 
    // Bağlantı kopma işleyicisi
-   async handleDisconnection(socket) {
-     const userId = socket.userId;
-     const userInfo = socket.userInfo;
+  async handleDisconnection(socket) {
+    const userId = socket.userId;
+    const userInfo = socket.userInfo;
 
-     console.log(`Kullanıcı bağlantısı koptu: ${userInfo.name} (${userId})`);
+    console.log(`🔌 Kullanıcı bağlantısı koptu: ${userInfo.name} (${userId})`);
 
-     // Kullanıcıyı offline olarak işaretle
-     const updatedUser = await this.setUserOnlineStatus(userId, false);
+    // Kısa bir gecikme ekle - kullanıcı hemen yeniden bağlanabilir
+    setTimeout(async () => {
+      // Kullanıcının başka aktif bağlantısı var mı kontrol et
+      const hasOtherConnection = Array.from(this.connectedUsers.entries()).some(([id, connection]) => {
+        return id === userId && connection.socketId !== socket.id;
+      });
 
-     // Bağlı kullanıcılardan çıkar
-     const userConnection = this.connectedUsers.get(userId);
-     if (userConnection && updatedUser) {
-       // Kullanıcının odalarındaki typing durumunu temizle
-       userConnection.rooms.forEach(roomId => {
-         this.removeTypingUser(parseInt(roomId), userId);
-         
-         // Odadaki diğer kullanıcılara offline durumunu bildir
-         socket.to(roomId).emit('user-offline', {
-           userId: userId,
-           userInfo: userInfo,
-           last_seen: updatedUser.last_seen,
-           timestamp: new Date()
-         });
-       });
+      if (!hasOtherConnection) {
+        console.log(`⏰ ${userId} için offline işlemi başlatılıyor (başka bağlantı yok)`);
+        
+        // Kullanıcıyı offline olarak işaretle
+        const updatedUser = await this.setUserOnlineStatus(userId, false);
 
-       this.connectedUsers.delete(userId);
-     }
+        // Bağlı kullanıcılardan çıkar
+        const userConnection = this.connectedUsers.get(userId);
+        if (userConnection && updatedUser) {
+          // Kullanıcının odalarındaki typing durumunu temizle
+          userConnection.rooms.forEach(roomId => {
+            this.removeTypingUser(parseInt(roomId), userId);
+            
+            // Odadaki diğer kullanıcılara offline durumunu bildir
+            socket.to(roomId).emit('user-offline', {
+              userId: userId,
+              userInfo: userInfo,
+              last_seen: updatedUser.last_seen,
+              timestamp: new Date()
+            });
+          });
 
-     // Tüm kullanıcılara güncel online users listesini gönder
-     this.broadcastOnlineUsersList();
-   }
+          this.connectedUsers.delete(userId);
+        }
+
+        // Tüm kullanıcılara güncel online users listesini gönder
+        this.broadcastOnlineUsersList();
+      } else {
+        console.log(`🔄 ${userId} için offline işlemi atlandı (başka aktif bağlantı var)`);
+      }
+    }, 2000); // 2 saniye gecikme
+  }
 
    // Yardımcı metodlar
    async getUserRooms(userId) {
@@ -726,8 +751,10 @@ class SocketManager {
 
    async setUserOnlineStatus(userId, isOnline) {
      try {
+       // Türkiye saati için UTC+3 ekle
        const currentTime = new Date();
-       const formattedTime = currentTime.toISOString().slice(0, 19).replace('T', ' ');
+       const turkeyTime = new Date(currentTime.getTime() + (3 * 60 * 60 * 1000)); // UTC+3
+       const formattedTime = turkeyTime.toISOString().slice(0, 19).replace('T', ' ');
        
        await db.execute(
          'UPDATE users SET is_online = ?, last_seen = ? WHERE id = ?',

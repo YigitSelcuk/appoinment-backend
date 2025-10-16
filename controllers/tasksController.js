@@ -120,7 +120,9 @@ const getTasks = async (req, res) => {
       LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
     `;
 
-    const [tasks] = await db.execute(query, [...queryParams, userId, userId]);
+    // Parametre sırası önemli: CASE içindeki placeholder'lar önce gelir, ardından WHERE koşullarındaki placeholder'lar
+    // Bu nedenle userId değerlerini önce, whereClause için gerekli parametreleri (queryParams) sonra geçiyoruz
+    const [tasks] = await db.execute(query, [userId, userId, ...queryParams]);
 
     const statusCountQuery = `
       SELECT 

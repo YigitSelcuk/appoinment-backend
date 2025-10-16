@@ -706,6 +706,50 @@ const getDepartments = async (req, res) => {
   }
 };
 
+const checkEmailExists = async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'E-posta adresi gerekli'
+      });
+    }
+
+    const [existingUser] = await db.execute(
+      'SELECT id, name, email FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (existingUser.length > 0) {
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        message: 'Bu e-posta adresi zaten kullanılıyor',
+        user: {
+          id: existingUser[0].id,
+          name: existingUser[0].name,
+          email: existingUser[0].email
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      exists: false,
+      message: 'E-posta adresi kullanılabilir'
+    });
+
+  } catch (error) {
+    console.error('E-posta kontrolü hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'E-posta kontrolü yapılırken hata oluştu'
+    });
+  }
+};
+
 module.exports = {
   getUsers,
   getCurrentUser,
@@ -717,5 +761,6 @@ module.exports = {
   updateUserPermissions,
   deleteUser,
   deleteMultipleUsers,
-  getDepartments
+  getDepartments,
+  checkEmailExists
 };
