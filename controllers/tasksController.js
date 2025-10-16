@@ -13,6 +13,46 @@ const getTasks = async (req, res) => {
 
     const userId = req.user?.id || 1;
 
+    // 1 gün kala görev bitiş hatırlatması (cron olmadan, sayfa açıldığında kontrol)
+    try {
+      const [dueSoonTasks] = await db.execute(
+        `SELECT id, title, assignee_id, end_date, status
+         FROM tasks
+         WHERE assignee_id = ?
+           AND status IN ('Beklemede', 'Devam Ediyor')
+           AND DATE(end_date) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)`,
+        [userId]
+      );
+
+      for (const task of dueSoonTasks) {
+        // Aynı hatırlatmayı tekrar oluşturmamak için kontrol et
+        const [existingNoti] = await db.execute(
+          `SELECT id FROM notifications
+           WHERE user_id = ? AND type = 'task_deadline_reminder'
+             AND related_id = ? AND related_type = 'tasks'
+           LIMIT 1`,
+          [userId, task.id]
+        );
+
+        if (existingNoti.length === 0) {
+          try {
+            await notificationsController.createNotification(
+              userId,
+              'Görev Bitiş Hatırlatması',
+              `Göreviniz yarın bitiyor: ${task.title}`,
+              'task_deadline_reminder',
+              task.id,
+              'tasks'
+            );
+          } catch (notiErr) {
+            console.error('Bitiş hatırlatması oluşturulamadı:', notiErr);
+          }
+        }
+      }
+    } catch (reminderErr) {
+      console.error('Görev bitiş hatırlatma kontrol hatası:', reminderErr);
+    }
+
     let whereClause = 'WHERE (t.user_id = ? OR t.assignee_id = ?)';
     let queryParams = [userId, userId];
 
@@ -64,17 +104,17 @@ const getTasks = async (req, res) => {
       LEFT JOIN users u ON t.assignee_id = u.id
       ${whereClause}
       ORDER BY 
-        CASE t.status 
+        CASE t.status
           WHEN 'Devam Ediyor' THEN 1
           WHEN 'Beklemede' THEN 2  
-          WHEN 'Tamamlandı' THEN 3
-          WHEN 'İptal Edildi' THEN 4
+          WHEN 'Tamamlandi' THEN 3
+          WHEN 'Iptal Edildi' THEN 4
         END,
         CASE t.priority
           WHEN 'Kritik' THEN 1
-          WHEN 'Yüksek' THEN 2
+          WHEN 'Yuksek' THEN 2
           WHEN 'Normal' THEN 3
-          WHEN 'Düşük' THEN 4
+          WHEN 'Dusuk' THEN 4
         END,
         t.created_at DESC
       LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
@@ -93,16 +133,17 @@ const getTasks = async (req, res) => {
     const [statusCounts] = await db.execute(statusCountQuery, [userId, userId]);
 
     const formattedStatusCounts = {
-      'Hepsi': totalRecords,
+      'Hepsi': 0,
       'Beklemede': 0,
       'Devam Ediyor': 0,
-      'Tamamlandı': 0,
-      'İptal Edildi': 0
+      'Tamamlandi': 0,
+      'Iptal Edildi': 0
     };
 
     statusCounts.forEach(item => {
       formattedStatusCounts[item.status] = item.count;
     });
+    formattedStatusCounts['Hepsi'] = statusCounts.reduce((sum, item) => sum + item.count, 0);
 
     res.json({
       success: true,
@@ -561,8 +602,8 @@ const getTaskStats = async (req, res) => {
       SELECT 
         assignee_name,
         COUNT(*) as total_tasks,
-        SUM(CASE WHEN status = 'Tamamlandı' THEN 1 ELSE 0 END) as completed_tasks,
-        ROUND(SUM(CASE WHEN status = 'Tamamlandı' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as completion_rate
+        SUM(CASE WHEN status = 'Tamamlandi' THEN 1 ELSE 0 END) as completed_tasks,
+        ROUND(SUM(CASE WHEN status = 'Tamamlandi' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as completion_rate
       FROM tasks 
       WHERE user_id = ? AND assignee_name IS NOT NULL
       GROUP BY assignee_name
@@ -772,6 +813,36 @@ const deleteMultipleTasks = async (req, res) => {
   }
 };
 
+// Debug endpoint - veritabanındaki status değerlerini kontrol et
+const debugTaskStatus = async (req, res) => {
+  try {
+    // Mevcut status değerlerini getir
+    const [statusValues] = await db.execute(`
+      SELECT DISTINCT status, COUNT(*) as count 
+      FROM tasks 
+      GROUP BY status
+    `);
+    
+    // Tablo yapısını kontrol et
+    const [tableInfo] = await db.execute(`
+      SHOW COLUMNS FROM tasks LIKE 'status'
+    `);
+    
+    res.json({
+      success: true,
+      statusValues,
+      tableInfo: tableInfo[0]
+    });
+  } catch (error) {
+    console.error('Debug endpoint hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Debug endpoint hatası',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getTasks,
   getTask,
@@ -780,5 +851,6 @@ module.exports = {
   updateTaskApproval,
   deleteTask,
   deleteMultipleTasks,
-  getTaskStats
+  getTaskStats,
+  debugTaskStatus
 };

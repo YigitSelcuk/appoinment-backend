@@ -12,6 +12,9 @@ router.get('/', tasksController.getTasks);
 // GET /api/tasks/stats - Görev istatistikleri
 router.get('/stats', tasksController.getTaskStats);
 
+// GET /api/tasks/debug - Debug endpoint
+router.get('/debug', tasksController.debugTaskStatus);
+
 // GET /api/tasks/:id - Belirli bir görevi getir
 router.get('/:id', tasksController.getTask);
 
