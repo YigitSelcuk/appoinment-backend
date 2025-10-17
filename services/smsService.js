@@ -13,6 +13,7 @@ const SMS_BLACKLIST_CHECK = parseInt(process.env.SMS_BLACKLIST_CHECK) ;
 const SMS_API_KEY = process.env.SMS_API_KEY;
 
 console.log('📋 SMS Konfigürasyonu:');
+console.log('📋 Kodlar degişiyor:');
 console.log('URL:', SMS_URL);
 console.log('Username:', SMS_USERNAME);
 console.log('User Code:', SMS_USER_CODE);
