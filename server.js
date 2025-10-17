@@ -101,6 +101,9 @@ app.use(session(sessionConfig));
 app.use(requestLogger);
 app.use(securityLogger);
 
+// AUTH ROUTES - Güvenlik middleware'lerinden ÖNCE
+app.use('/api/auth', require('./routes/auth'));
+
 // Advanced Security middleware'leri (sıralama önemli)
 app.use(detectSuspiciousActivity); // Suspicious activity detection
 app.use(requestFrequencyAnalysis); // Request frequency analysis
@@ -179,7 +182,8 @@ app.get('/api/status', (req, res) => {
 });
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
+// API Routes
+// app.use('/api/auth', require('./routes/auth')); // Yukarıda tanımlandı
 app.use('/api/contacts', require('./routes/contacts'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/chat', require('./routes/chat')); // Yeni temiz chat sistemi
