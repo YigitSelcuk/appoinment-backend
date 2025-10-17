@@ -412,10 +412,10 @@ const sessionConfig = {
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production', 
+    secure: false, // HTTP ortamı için false
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, 
-    sameSite: 'strict'
+    sameSite: 'lax' // VPN erişimi için daha esnek
   },
   name: 'belediye.sid'
 };

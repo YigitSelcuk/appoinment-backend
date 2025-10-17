@@ -27,8 +27,11 @@ router.post('/login',
   login
 );
 
-// Token yenileme endpoint'i
-router.post('/refresh-token', refreshToken);
+// Token yenileme endpoint'i - Rate limiting ile
+router.post('/refresh-token', 
+  rateLimit(10, 15 * 60 * 1000), // 15 dakikada 10 deneme
+  refreshToken
+);
 
 // Kullanıcı çıkışı
 router.post('/logout', authenticateToken, logout);

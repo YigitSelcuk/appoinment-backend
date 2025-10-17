@@ -54,18 +54,27 @@ const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
       process.env.FRONTEND_URL,
-      'https://yourdomain.com', // Production domain
-      'https://www.yourdomain.com'
+      'http://192.168.0.36:3000', // VPN üzerinden erişim için
+      'http://localhost:3000',
+      'http://127.0.0.1:3000'
     ].filter(Boolean);
     
+    // Development ortamında daha esnek CORS
     if (process.env.NODE_ENV !== 'production') {
-      allowedOrigins.push('http://localhost:3000', 'http://127.0.0.1:3000');
-    }
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
+      // VPN IP aralıkları için esnek kontrol
+      if (!origin || allowedOrigins.includes(origin) || 
+          (origin && origin.match(/^http:\/\/192\.168\.\d+\.\d+:\d+$/)) ||
+          (origin && origin.match(/^http:\/\/10\.\d+\.\d+\.\d+:\d+$/))) {
+        callback(null, true);
+      } else {
+        callback(null, true); // Development'ta tüm origin'lere izin ver
+      }
     } else {
-      callback(new Error('CORS policy violation'));
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('CORS policy violation'));
+      }
     }
   },
   credentials: true,

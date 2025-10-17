@@ -75,8 +75,8 @@ exports.login = async (req, res) => {
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production' ? true : false,
-      sameSite: 'none',
+      secure: false, // HTTP ortamı için false
+      sameSite: 'lax', // VPN erişimi için daha esnek
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
       path: '/'
     });
@@ -182,10 +182,12 @@ exports.refreshToken = async (req, res) => {
   try {
     let refreshToken = null;
 
+    // Cookie'den refresh token al
     if (req.cookies && req.cookies.refreshToken) {
       refreshToken = req.cookies.refreshToken;
     }
 
+    // Authorization header'dan refresh token al
     if (!refreshToken) {
       const authHeader = req.headers['authorization'];
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -193,30 +195,43 @@ exports.refreshToken = async (req, res) => {
       }
     }
 
+    // Body'den refresh token al
     if (!refreshToken && req.body && req.body.refreshToken) {
       refreshToken = req.body.refreshToken;
     }
 
     if (!refreshToken) {
+      console.log('Refresh token bulunamadı:', {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        cookies: !!req.cookies?.refreshToken,
+        authHeader: !!req.headers['authorization'],
+        body: !!req.body?.refreshToken
+      });
+      
       return res.status(401).json({
         success: false,
         message: 'Refresh token bulunamadı'
       });
     }
 
+    // Token'ı doğrula
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
     
     if (decoded.type !== 'refresh') {
+      console.log('Geçersiz token türü:', decoded.type);
       return res.status(401).json({
         success: false,
         message: 'Geçersiz token türü'
       });
     }
 
+    // Kullanıcıyı veritabanından kontrol et
     const query = 'SELECT * FROM users WHERE id = ? AND email = ?';
     const users = await db.query(query, [decoded.id, decoded.email]);
 
     if (users.length === 0) {
+      console.log('Kullanıcı bulunamadı:', { id: decoded.id, email: decoded.email });
       return res.status(401).json({
         success: false,
         message: 'Kullanıcı bulunamadı'
@@ -225,14 +240,17 @@ exports.refreshToken = async (req, res) => {
 
     const user = users[0];
 
+    // Kullanıcı permissions'ını parse et
     const userPermissions = user.permissions ? (() => {
       try { 
         return typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; 
       } catch (e) { 
+        console.error('Permissions parse hatası:', e);
         return null; 
       }
     })() : null;
 
+    // Yeni access token oluştur
     const newAccessToken = jwt.sign(
       {
         id: user.id,
@@ -247,13 +265,37 @@ exports.refreshToken = async (req, res) => {
       { expiresIn: '3h' }
     );
 
+    console.log('Token başarıyla yenilendi:', { userId: user.id, email: user.email });
+
     res.json({
       success: true,
       accessToken: newAccessToken
     });
 
   } catch (error) {
-    console.error('Token yenileme hatası:', error);
+    console.error('Token yenileme hatası:', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Refresh token süresi dolmuş',
+        code: 'REFRESH_TOKEN_EXPIRED'
+      });
+    }
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Geçersiz refresh token',
+        code: 'INVALID_REFRESH_TOKEN'
+      });
+    }
+    
     res.status(401).json({
       success: false,
       message: 'Geçersiz refresh token'
