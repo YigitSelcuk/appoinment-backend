@@ -182,9 +182,19 @@ exports.refreshToken = async (req, res) => {
   try {
     let refreshToken = null;
 
+    // Debug: Gelen request'i logla
+    console.log('=== REFRESH TOKEN DEBUG ===');
+    console.log('IP:', req.ip);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Cookies:', JSON.stringify(req.cookies, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    console.log('Origin:', req.get('Origin'));
+    console.log('Referer:', req.get('Referer'));
+
     // Cookie'den refresh token al
     if (req.cookies && req.cookies.refreshToken) {
       refreshToken = req.cookies.refreshToken;
+      console.log('Refresh token cookie\'den alındı');
     }
 
     // Authorization header'dan refresh token al
@@ -192,21 +202,25 @@ exports.refreshToken = async (req, res) => {
       const authHeader = req.headers['authorization'];
       if (authHeader && authHeader.startsWith('Bearer ')) {
         refreshToken = authHeader.split(' ')[1];
+        console.log('Refresh token authorization header\'dan alındı');
       }
     }
 
     // Body'den refresh token al
     if (!refreshToken && req.body && req.body.refreshToken) {
       refreshToken = req.body.refreshToken;
+      console.log('Refresh token body\'den alındı');
     }
 
     if (!refreshToken) {
-      console.log('Refresh token bulunamadı:', {
+      console.log('❌ Refresh token bulunamadı:', {
         ip: req.ip,
         userAgent: req.get('User-Agent'),
         cookies: !!req.cookies?.refreshToken,
         authHeader: !!req.headers['authorization'],
-        body: !!req.body?.refreshToken
+        body: !!req.body?.refreshToken,
+        cookieKeys: req.cookies ? Object.keys(req.cookies) : [],
+        headerKeys: Object.keys(req.headers)
       });
       
       return res.status(401).json({
@@ -214,6 +228,8 @@ exports.refreshToken = async (req, res) => {
         message: 'Refresh token bulunamadı'
       });
     }
+
+    console.log('✅ Refresh token bulundu, doğrulanıyor...');
 
     // Token'ı doğrula
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
