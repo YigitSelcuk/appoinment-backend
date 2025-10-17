@@ -141,20 +141,35 @@ app.use('/uploads', (req, res, next) => {
     return res.status(405).json({ message: 'Method not allowed' });
   }
   
-  // Güvenli CORS headers
+  // Güvenli CORS headers - VPN IP'leri dahil
   const allowedOrigins = [
     process.env.FRONTEND_URL,
-    'https://yourdomain.com',
-    'https://www.yourdomain.com'
+    'http://192.168.0.36:3000', // VPN üzerinden erişim için
+    'http://10.212.134.200:3000', // VPN IP adresi
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
   ].filter(Boolean);
   
   const origin = req.get('Origin');
-  if (origin && allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
+  
+  // Development ortamında daha esnek CORS
+  if (process.env.NODE_ENV !== 'production') {
+    // VPN IP aralıkları için esnek kontrol
+    if (!origin || allowedOrigins.includes(origin) || 
+        (origin && origin.match(/^http:\/\/192\.168\.\d+\.\d+:\d+$/)) ||
+        (origin && origin.match(/^http:\/\/10\.\d+\.\d+\.\d+:\d+$/))) {
+      res.header('Access-Control-Allow-Origin', origin || '*');
+    } else {
+      res.header('Access-Control-Allow-Origin', '*'); // Development'ta tüm origin'lere izin ver
+    }
+  } else {
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+    }
   }
   
   res.header('Access-Control-Allow-Methods', 'GET');
-  res.header('Cross-Origin-Resource-Policy', 'same-site');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin'); // same-site yerine cross-origin
   res.header('Cache-Control', 'public, max-age=3600'); // 1 saat cache
   
   // File type kontrolü
