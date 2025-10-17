@@ -55,6 +55,7 @@ const corsOptions = {
     const allowedOrigins = [
       process.env.FRONTEND_URL,
       'http://192.168.0.36:3000', // VPN üzerinden erişim için
+      'http://10.212.134.200:3000', // VPN IP adresi
       'http://localhost:3000',
       'http://127.0.0.1:3000'
     ].filter(Boolean);
