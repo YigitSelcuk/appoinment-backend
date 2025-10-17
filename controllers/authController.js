@@ -76,7 +76,7 @@ exports.login = async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: false, // HTTP ortamı için false
-      sameSite: 'none', // VPN cross-origin erişimi için none
+      sameSite: 'lax', // HTTP ortamında none çalışmaz, lax kullan
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
       path: '/',
       domain: undefined // Domain kısıtlaması kaldır
@@ -184,7 +184,7 @@ exports.refreshToken = async (req, res) => {
     let refreshToken = null;
 
     // Debug: Gelen request'i logla
-    console.log('=== REFRESH TOKEN DEBUG v2.2 ===');
+    console.log('=== REFRESH TOKEN DEBUG v2.3 ===');
     console.log('IP:', req.ip);
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
     console.log('Cookies:', req.cookies);

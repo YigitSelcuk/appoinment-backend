@@ -90,7 +90,7 @@ app.use(cors(corsOptions));
 // GLOBAL DEBUG MIDDLEWARE - EN ÜSTTE, TÜM DİĞER MIDDLEWARE'LERDEN ÖNCE
 app.use((req, res, next) => {
   if (req.url === '/api/auth/refresh-token') {
-    console.log('🚨 GLOBAL MIDDLEWARE v2.2: Refresh token isteği yakalandı!', {
+    console.log('🚨 GLOBAL MIDDLEWARE v2.3: Refresh token isteği yakalandı!', {
       method: req.method,
       url: req.url,
       ip: req.ip,
@@ -276,10 +276,10 @@ app.use((err, req, res, next) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 SERVER BAŞLADI - KOD DEĞİŞTİ AKTIF v2.2 🚀`);
+  console.log(`🚀 SERVER BAŞLADI - KOD DEĞİŞTİ AKTIF v2.3 🚀`);
   console.log(`Port: ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-  console.log(`Global debug middleware aktif: v2.2`);
+  console.log(`Global debug middleware aktif: v2.3`);
   console.log(`Timestamp: ${new Date().toISOString()}`);
 });
