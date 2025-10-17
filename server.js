@@ -97,6 +97,22 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Session middleware
 app.use(session(sessionConfig));
 
+// GLOBAL DEBUG MIDDLEWARE - Tüm istekleri yakala
+app.use((req, res, next) => {
+  if (req.url.includes('/api/auth/refresh-token')) {
+    console.log('🚨 GLOBAL MIDDLEWARE: Refresh token isteği yakalandı!', {
+      method: req.method,
+      url: req.url,
+      ip: req.ip,
+      origin: req.get('Origin'),
+      userAgent: req.get('User-Agent'),
+      cookies: Object.keys(req.cookies || {}),
+      headers: Object.keys(req.headers)
+    });
+  }
+  next();
+});
+
 // Logging middleware'leri
 app.use(requestLogger);
 app.use(securityLogger);
