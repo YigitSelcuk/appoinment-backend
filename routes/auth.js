@@ -30,13 +30,13 @@ router.post('/login',
 // Token yenileme endpoint'i - Debug için rate limiting kaldırıldı
 router.post('/refresh-token', 
   (req, res, next) => {
-    console.log('🔍 AUTH ROUTE v2.1: Refresh token endpoint\'ine istek geldi:', {
+    console.log('🔍 AUTH ROUTE v2.2: Refresh token endpoint\'ine istek geldi:', {
       ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      origin: req.get('Origin'),
-      referer: req.get('Referer'),
+      userAgent: req.headers['user-agent'],
+      origin: req.headers.origin,
+      referer: req.headers.referer,
       method: req.method,
-      url: req.originalUrl,
+      url: req.url,
       timestamp: new Date().toISOString()
     });
     next();

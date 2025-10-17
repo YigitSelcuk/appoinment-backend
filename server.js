@@ -81,7 +81,7 @@ const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie'],
   exposedHeaders: ['set-cookie']
 };
 
@@ -89,13 +89,13 @@ app.use(cors(corsOptions));
 
 // GLOBAL DEBUG MIDDLEWARE - EN ÜSTTE, TÜM DİĞER MIDDLEWARE'LERDEN ÖNCE
 app.use((req, res, next) => {
-  if (req.url.includes('/api/auth/refresh-token')) {
-    console.log('🚨 GLOBAL MIDDLEWARE v2.1: Refresh token isteği yakalandı!', {
+  if (req.url === '/api/auth/refresh-token') {
+    console.log('🚨 GLOBAL MIDDLEWARE v2.2: Refresh token isteği yakalandı!', {
       method: req.method,
       url: req.url,
       ip: req.ip,
-      origin: req.get('Origin'),
-      userAgent: req.get('User-Agent'),
+      origin: req.headers.origin,
+      userAgent: req.headers['user-agent'],
       cookies: Object.keys(req.cookies || {}),
       headers: Object.keys(req.headers),
       timestamp: new Date().toISOString()
@@ -276,12 +276,10 @@ app.use((err, req, res, next) => {
 });
 
 server.listen(PORT, () => {
-  console.log('🚀 SERVER BAŞLADI - KOD DEĞİŞTİ AKTIF v2.1 🚀');
-  console.log(`🌐 Server ${PORT} portunda çalışıyor`);
-  console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-  console.log('✅ Global debug middleware aktif - refresh token istekleri yakalanacak');
-   console.log('Socket.IO WebSocket desteği aktif');
-  console.log('Randevu hatırlatma servisi aktif');
-  
+  console.log(`🚀 SERVER BAŞLADI - KOD DEĞİŞTİ AKTIF v2.2 🚀`);
+  console.log(`Port: ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+  console.log(`Global debug middleware aktif: v2.2`);
+  console.log(`Timestamp: ${new Date().toISOString()}`);
 });

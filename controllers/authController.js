@@ -76,9 +76,10 @@ exports.login = async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: false, // HTTP ortamı için false
-      sameSite: 'lax', // VPN erişimi için daha esnek
+      sameSite: 'none', // VPN cross-origin erişimi için none
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
-      path: '/'
+      path: '/',
+      domain: undefined // Domain kısıtlaması kaldır
     });
 
     const { password: _, ...userWithoutPassword } = user;
@@ -183,13 +184,13 @@ exports.refreshToken = async (req, res) => {
     let refreshToken = null;
 
     // Debug: Gelen request'i logla
-    console.log('=== REFRESH TOKEN DEBUG v2.1 ===');
+    console.log('=== REFRESH TOKEN DEBUG v2.2 ===');
     console.log('IP:', req.ip);
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Cookies:', JSON.stringify(req.cookies, null, 2));
-    console.log('Body:', JSON.stringify(req.body, null, 2));
-    console.log('Origin:', req.get('Origin'));
-    console.log('Referer:', req.get('Referer'));
+    console.log('Cookies:', req.cookies);
+    console.log('Body:', req.body);
+    console.log('Origin:', req.headers.origin);
+    console.log('Referer:', req.headers.referer);
     console.log('Timestamp:', new Date().toISOString());
 
     // Cookie'den refresh token al
