@@ -183,13 +183,14 @@ exports.refreshToken = async (req, res) => {
     let refreshToken = null;
 
     // Debug: Gelen request'i logla
-    console.log('=== REFRESH TOKEN DEBUG ===');
+    console.log('=== REFRESH TOKEN DEBUG v2.1 ===');
     console.log('IP:', req.ip);
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
     console.log('Cookies:', JSON.stringify(req.cookies, null, 2));
     console.log('Body:', JSON.stringify(req.body, null, 2));
     console.log('Origin:', req.get('Origin'));
     console.log('Referer:', req.get('Referer'));
+    console.log('Timestamp:', new Date().toISOString());
 
     // Cookie'den refresh token al
     if (req.cookies && req.cookies.refreshToken) {
