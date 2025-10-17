@@ -27,9 +27,20 @@ router.post('/login',
   login
 );
 
-// Token yenileme endpoint'i - Rate limiting ile
+// Token yenileme endpoint'i - Debug için rate limiting kaldırıldı
 router.post('/refresh-token', 
-  rateLimit(10, 15 * 60 * 1000), // 15 dakikada 10 deneme
+  (req, res, next) => {
+    console.log('🔍 Refresh token endpoint\'ine istek geldi:', {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      origin: req.get('Origin'),
+      referer: req.get('Referer'),
+      method: req.method,
+      url: req.originalUrl
+    });
+    next();
+  },
+  // rateLimit(10, 15 * 60 * 1000), // Geçici olarak kapatıldı
   refreshToken
 );
 
